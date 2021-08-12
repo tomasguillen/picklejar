@@ -1,4 +1,8 @@
-/*v1 = minimal version
+NON TRIVIAL EXAMPLES Section
+If using gcc with -Werror you may want to turn off -Wno-class-memaccess if it gives a warning
+
+/*
+v1 = minimal version
 v2 = with operation_modify_using_previous_bytes
 v3 = with constructor_generator
 */
@@ -12,7 +16,11 @@ v3 = with constructor_generator
 
 // object_stream_v1
 
+// object_stream_v1_copy uses object_stream_v1
+
 // START object_file_v1 uses object_stream_v1
+
+// START object_file_v1_copy uses object_stream_v1
 
 // stream_v1 uses object_stream_v1
   
@@ -31,6 +39,8 @@ v3 = with constructor_generator
 // object_buffer_v3 uses object_buffer_v2
 
 // object_buffer_v1
+
+// START object_buffer_v1_copy uses object_buffer_v1
 
 // buffer_v1 uses object_buffer_v1
 
