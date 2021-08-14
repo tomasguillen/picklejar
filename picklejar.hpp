@@ -491,7 +491,7 @@ auto operation_specific_read_object_from_buffer(
               copy.get_pointer_to_copy(), sizeof(Type));
   std::array<char, sizeof(Type)>
       bytes_from_file{};  // TODO(tom): this may be unnecessary we could just
-                          // pass buffer_with_input_bytes with offset and size
+                          // pass buffer_with_input_bytes with offset and size?
   std::memcpy(bytes_from_file.data(),
               buffer_with_input_bytes.data() + bytes_read_so_far, sizeof(Type));
   bytes_read_so_far += sizeof(Type);
@@ -655,9 +655,7 @@ template <class Type,
     if (bytes_read_so_far + sizeof(Type) >
         static_cast<unsigned long>(file_size))
       break;
-    // START OPERATION VERSION
     ManagedAlignedCopy copy{};
-    // END OPERATION VERSION
     vector_input_data.push_back(std::move(
         *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
               copy, buffer_with_input_bytes, bytes_read_so_far))
@@ -689,8 +687,8 @@ template <class Type,
   }
   size_t bytes_read_so_far = 0;
   while (bytes_read_so_far < file_size) {
-    std::puts(
-        ("bytes_read_so_far: " + std::to_string(bytes_read_so_far)).c_str());
+    //std::puts(
+    //    ("bytes_read_so_far: " + std::to_string(bytes_read_so_far)).c_str());
     if (bytes_read_so_far + sizeof(Type) >
         static_cast<unsigned long>(file_size))
       break;

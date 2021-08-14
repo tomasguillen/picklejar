@@ -32,9 +32,9 @@ void picklejartests_buffer() {
          auto &bytes_from_file) mutable {
         constexpr auto class_member_offset = offsetof(TestStructure, id);
 
-        print_as_hex(bytes_from_file, sizeof(TestStructure),
+        hexer::print_address_range_as_hex_unchecked(bytes_from_file, sizeof(TestStructure),
                      class_member_offset, sizeof(std::string));
-        print_as_hex(valid_bytes_from_new_blank_instance, sizeof(TestStructure),
+        hexer::print_address_range_as_hex_unchecked(valid_bytes_from_new_blank_instance, sizeof(TestStructure),
                      class_member_offset, sizeof(std::string));
         picklejar::util::preserve_blank_instance_member(
             class_member_offset, sizeof(std::string),
@@ -42,7 +42,7 @@ void picklejartests_buffer() {
         picklejar::util::copy_new_bytes_to_instance(
             bytes_from_file, blank_instance, sizeof(TestStructure));
 
-        print_as_hex(blank_instance, sizeof(TestStructure), class_member_offset,
+        hexer::print_object_as_hex(blank_instance, class_member_offset,
                      sizeof(std::string));
       };
   auto &&preserve_constructed_id_in_our_new_copy_and_modify_it =

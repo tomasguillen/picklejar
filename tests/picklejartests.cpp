@@ -19,9 +19,9 @@
 #include <hexer.hpp>
 
 #include "../picklejar.hpp"
-#include "picklejartests_teststructures.hpp"
 #include "picklejartests_buffer.hpp"
 #include "picklejartests_file.hpp"
+#include "picklejartests_teststructures.hpp"
 
 using namespace boost::ut;
 
@@ -46,7 +46,7 @@ int main() {
                               std::begin(int_vec)))
         << "Read vector is not equal to vector used to test";
     if (optional_read_vector) {
-      print_vec(optional_read_vector.value());
+      hexer::print_vec(optional_read_vector.value());
     }
   };
   "String Vector"_test = [] {
@@ -84,7 +84,7 @@ int main() {
                        [](const auto &s) { return s.starts_with("prefix"); }))
         << "Read vector is should contain elements starting with 'prefix'";
     if (optional_read_vector.has_value()) {
-      print_vec(optional_read_vector.value());
+      hexer::print_vec(optional_read_vector.value());
     }
   };
 }
