@@ -348,7 +348,7 @@ template <typename Type,
       return {};
     }
     if (ifstream_is_sizeof_type_larger_than_remaining_readbytes<Type>(
-            ifstream_input_file, file_size))
+            ifstream_input_file, size_t(file_size)))
       break;
     // std::puts(("gtell" +
     // std::to_string(ifstream_input_file.tellg())).c_str()); // tells us which
@@ -589,10 +589,10 @@ void preserve_blank_instance_member(size_t blank_instance_member_offset,
       &valid_bytes_from_new_blank_instance + blank_instance_member_offset,
       blank_instance_member_size);
 }
-void copy_new_bytes_to_instance(auto &bytes_from_file, auto &blank_instance,
+void copy_new_bytes_to_instance(auto &bytes_to_copy_to_instance, auto &blank_instance,
                                 size_t size_of_object) {
   // copy our read bytes to our blank copy
-  std::memcpy(&blank_instance, &bytes_from_file, size_of_object);
+  std::memcpy(&blank_instance, &bytes_to_copy_to_instance, size_of_object);
 }
 }  // namespace util
 
@@ -687,7 +687,7 @@ template <class Type,
   }
   size_t bytes_read_so_far = 0;
   while (bytes_read_so_far < file_size) {
-    //std::puts(
+    // std::puts(
     //    ("bytes_read_so_far: " + std::to_string(bytes_read_so_far)).c_str());
     if (bytes_read_so_far + sizeof(Type) >
         static_cast<unsigned long>(file_size))
@@ -735,7 +735,7 @@ template <class Type,
       return {};
     }
     if (ifstream_is_sizeof_type_larger_than_remaining_readbytes<Type>(
-            ifstream_input_file, file_size))
+            ifstream_input_file, size_t(file_size)))
       break;
     ManagedAlignedCopy copy{constructor_generator()};
     vector_input_data.push_back(std::move(
