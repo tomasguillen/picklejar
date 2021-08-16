@@ -37,7 +37,7 @@ template <typename Type>
     -> bool {
   ofs_output_file.write(reinterpret_cast<const char *>(&object),
                         sizeof(Type));  // NOLINT
-  return !ofs_output_file.bad();
+  return ofs_output_file.good();
 }
 // END object_stream_v1
 // START object_file_v1
@@ -77,7 +77,7 @@ auto write_vector_to_stream(const std::vector<Type> &container_of_type,
   ofs_output_file.write(
       reinterpret_cast<const char *>(container_of_type.data()),  // NOLINT
       static_cast<long int>(sizeof(Type) * container_of_type.size()));
-  return !ofs_output_file.bad();
+  return ofs_output_file.good();
 }
 // END stream_v1
 // START file_v1
