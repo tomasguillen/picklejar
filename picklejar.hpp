@@ -234,6 +234,8 @@ concept ContainerHasDataAndSize = requires(C a) {
 };
 template <typename C>
 concept TriviallyCopiable = std::is_trivially_copyable_v<C>;
+template <typename C>
+concept DefaultConstructible = std::is_default_constructible_v<C>;
 
 // NOLINTNEXTLINE
 #define CONTAINERWITHHASPUSHBACK_MSG                                        \
@@ -251,6 +253,13 @@ concept TriviallyCopiable = std::is_trivially_copyable_v<C>;
   "'preserve_blank_instance_member' and 'copy_new_bytes_to_instance' in the "  \
   "lambda to fix non trivially copiable members. SEE NON TRIVIAL EXAMPLES "    \
   "section in the readme file"
+
+#define DEFAULTCONSTRUCTIBLE_MSG                                              \
+  "PICKLEJAR_HELP: The object passed to picklejar is not default "            \
+  "constructible. "                                                           \
+  "You will need to pass a fourth parameter to picklejar with a lambda that " \
+  "returns a tuple with the parameters to construct the object. SEE NON "     \
+  "TRIVIAL EXAMPLES section in the readme file"
 // END CONCEPTS
 
 // START READ_API
@@ -413,6 +422,7 @@ template <class Type,
 auto read_object_from_stream(std::ifstream &ifstream_input_file,
                              auto &&operation_modify_using_previous_bytes)
     -> std::optional<Type> {
+  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   ManagedAlignedCopy copy{};
   if (ifstream_is_invalid(ifstream_input_file)) {
     return {};
@@ -446,6 +456,7 @@ auto read_object_from_file(ManagedAlignedCopy &copy,
                            const std::string file_name,
                            auto &&operation_modify_using_previous_bytes)
     -> std::optional<ManagedAlignedCopy *> {
+  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   std::ifstream ifstream_input_file(file_name, std::ios::in | std::ios::binary);
   if (ifstream_is_invalid(ifstream_input_file)) {
     return {};
@@ -465,6 +476,7 @@ template <class Type,
 auto read_object_from_file(const std::string file_name,
                            auto &&operation_modify_using_previous_bytes)
     -> std::optional<Type> {
+  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   ManagedAlignedCopy copy{};
   auto lower_level_return{read_object_from_file<Type, ManagedAlignedCopy>(
       copy, file_name, operation_modify_using_previous_bytes)};
@@ -483,6 +495,7 @@ auto operation_specific_read_object_from_buffer(
     ManagedAlignedCopy &copy, BufferContainer &buffer_with_input_bytes,
     size_t &bytes_read_so_far, auto &&operation_modify_using_previous_bytes)
     -> ManagedAlignedCopy & {
+  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   static_assert(ContainerHasDataAndSize<BufferContainer>,
                 CONTAINERWITHHASDATAANDSIZE_MSG);
 
@@ -509,6 +522,7 @@ auto read_object_from_buffer(BufferContainer &buffer_with_input_bytes,
                              size_t &bytes_read_so_far,
                              auto &&operation_modify_using_previous_bytes)
     -> Type {
+  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   static_assert(ContainerHasDataAndSize<BufferContainer>,
                 CONTAINERWITHHASDATAANDSIZE_MSG);
   ManagedAlignedCopy copy{};
@@ -589,8 +603,8 @@ void preserve_blank_instance_member(size_t blank_instance_member_offset,
       &valid_bytes_from_new_blank_instance + blank_instance_member_offset,
       blank_instance_member_size);
 }
-void copy_new_bytes_to_instance(auto &bytes_to_copy_to_instance, auto &blank_instance,
-                                size_t size_of_object) {
+void copy_new_bytes_to_instance(auto &bytes_to_copy_to_instance,
+                                auto &blank_instance, size_t size_of_object) {
   // copy our read bytes to our blank copy
   std::memcpy(&blank_instance, &bytes_to_copy_to_instance, size_of_object);
 }
@@ -758,6 +772,7 @@ template <class Type,
 [[nodiscard]] auto read_vector_from_stream(
     Container &vector_input_data, std::ifstream &ifstream_input_file,
     auto &&operation_modify_using_previous_bytes) -> std::optional<Container> {
+  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   return read_vector_from_stream<Type, ManagedAlignedCopy>(
       vector_input_data, ifstream_input_file,
       operation_modify_using_previous_bytes, return_empty_tuple);
@@ -770,6 +785,7 @@ template <class Type,
 [[nodiscard]] constexpr auto read_vector_from_buffer(
     Container &vector_input_data, BufferContainer &buffer_with_input_bytes,
     auto &&operation_modify_using_previous_bytes) -> std::optional<Container> {
+  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   static_assert(ContainerHasDataAndSize<BufferContainer>,
                 CONTAINERWITHHASDATAANDSIZE_MSG);
   return read_vector_from_buffer<Type, ManagedAlignedCopy>(
@@ -784,6 +800,7 @@ template <class Type,
 [[nodiscard]] auto read_vector_from_file(
     const std::string file_name, auto &&operation_modify_using_previous_bytes)
     -> std::optional<Container> {
+  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   Container vector_input_data;
 
   std::ifstream ifstream_input_file(file_name, std::ios::in | std::ios::binary);
