@@ -12,7 +12,7 @@ This is how to write a vector of ints to a file named "example1.data":
 ```
 ```write_vector_to_file``` returns true if writting to the file was successful.
 And this is how we can read it from that same file:
-```
+```c++
   if (auto optional_read_vector =
           picklejar::read_vector_from_file<int>("example1.data");
       optional_read_vector) {
@@ -355,9 +355,9 @@ Code-wise, Solution 3 is identical to Solution 2 except we add a fourth paramete
 ## What comes with PickleJar:
 There are **3** types of **READ** operations (v1, v2, v3), and **1** type of **WRITE** operations (v1)
 ### The READ operation depends on the number of parameter passed:
-1. v1 = minimal version (only using the base parameters see below)
-2. v2 = with **operation_modify_using_previous_bytes** (an additional lambda passed that allows to manipulate the bytes that will be copied into the new object).
-3. v3 = with **operation_modify_using_previous_bytes** **constructor_generator** (an additional lambda passed that allows to construct the object by returning a lambda with the parameters for the constructor of each object).
+* v1 = minimal version (only using the base parameters [see below](#base-parameters-for-objects-v1---minimal-version))
+* v2 = with **operation_modify_using_previous_bytes** (an additional lambda passed that allows to manipulate the bytes that will be copied into the new object).
+* v3 = with **operation_modify_using_previous_bytes** **constructor_generator** (an additional lambda passed that allows to construct the object by returning a lambda with the parameters for the constructor of each object).
 
 You can use the algorithms with **objects** and **std::vector(or any container with fully sequential data, std::array)**:
 Example:
@@ -366,16 +366,39 @@ Example:
 
 ### Base Parameters for objects (v1 - minimal version):
 Picklejar algorithms for **objects** can read and write data from/to 3 different interfaces:
-1. An existing **std::ifstream** passed as FIRST parameter
-2. A **filename** (uses std::ifstream) passed as FIRST parameter
+1. An existing **std::ifstream** passed as FIRST parameter, OR
+2. A **filename** (uses std::ifstream) passed as FIRST parameter, OR
 3. A **buffer of bytes**(char type) passed as FIRST parameter
 
 ### Base Parameters for vectors (v1 - minimal version):
 Picklejar algorithms for **vectors** can read and write data from/to 3 different interfaces:
-1. An existing **std::ifstream** passed as SECOND parameter, the container to push_back() the elements as FIRST parameter
-2. A **filename** (uses std::ifstream) passed as FIRST parameter
+1. An existing **std::ifstream** passed as SECOND parameter, the container to push_back() the elements as FIRST parameter, OR
+2. A **filename** (uses std::ifstream) passed as FIRST parameter, OR
 3. A **buffer of bytes**(char type) passed as SECOND parameter, the container to push_back() the elements as FIRST parameter
 
+### Explanation of lambda parameters (v2 - operation_modify_using_previous_bytes version)
+Typically this is what you will do in this parameter:
+```
+          [](auto &blank_instance, auto &valid_bytes_from_new_blank_instance,
+             auto &bytes_from_file) {
+            picklejar::util::preserve_blank_instance_member(
+                0, sizeof(std::string), valid_bytes_from_new_blank_instance,
+                bytes_from_file);
+            picklejar::util::copy_new_bytes_to_instance(
+                valid_bytes_from_new_blank_instance, blank_instance,
+                sizeof(std::string));
+          }
+```
+In this case we are basically not doing anything, we are copying the valid bytes from our std::string that we created on this application run to a buffer and then we are copying them back into our new instance, essentially not changing it's bytes at all, this is useful for [Solution 4 - Ignore the string](#solution-4-based-in-solution-3-ignore-the-value-and-instead-use-its-default-constructor) as explained above.
+But you can also use ```picklejar::util::preserve_blank_instance_member``` with members of structs and classes:
+```
+                constexpr auto class_member_offset =
+                    offsetof(UITransposeFilter, id);
+                picklejar::util::preserve_blank_instance_member(
+                    class_member_offset, sizeof(std::string),
+                    valid_bytes_from_new_blank_instance, bytes_from_file);
+```
+In this case we are finding the byte offset of the member UITransposeFilter::id and preserving the bytes from the current application run in order to copy the other members into our new object. This allows us to ignore the id member if we don't care about copying it.
 ### So which algorithm do I use?
 |   | Second Header |
 | ------------- | ------------- |
