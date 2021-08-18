@@ -11,6 +11,7 @@ This is how to write a vector of ints to a file named "example1.data":
     std::puts("WRITESUCCESS");
 ```
 ```write_vector_to_file``` returns true if writting to the file was successful.
+
 And this is how we can read it from that same file:
 ```c++
   if (auto optional_read_vector =
@@ -36,65 +37,38 @@ There are 4 things you can do for Non-TriviallyCopiable types:
 3. Solution 3: Re-Generate the object using it's constructor.
 4. Solution 4: Based in **Solution 3**. Ignore the value and instead use it's default constructor.
 ## Solution 1: Copy the size of the non-triviallycopiable object along with it's bytes (this way we know how many characters to read/store)
+In order to be able to "deep copy" our string we will need to do the following:
 ```c++
-  std::vector<std::string> string_vec{"0",  "1",  "2",   "4",   "8",  "16",
-                                      "32", "64", "128", "256", "512"};
+  std::vector<std::string> string_vec{"0",  "1",  "2",   "4",   "8",   "16",
+                                      "32", "64", "128", "256", "512", "1024"};
 
-  std::ofstream ofs_output_file("example1.data");
-  if (picklejar::write_object_to_stream(string_vec.size(), ofs_output_file)) {
-    std::puts("WRITE_VECTOR_SIZE_SUCCESS");
-    for (auto object : string_vec) {
-      // for each element we write the size of the string first
-      if (picklejar::write_object_to_stream(object.size(), ofs_output_file)) {
-        std::puts("WRITE_ELEMENT_SIZE_SUCCESS");
-        // then we read the characters of the string
-        ofs_output_file.write(object.data(),
-                              std::streamsize(object.size()));  // NOLINT
-        if (ofs_output_file.good()) {
-          std::puts("WRITE_ELEMENT_SUCCESS");
-        } else {
-          std::puts("WRITE_ELEMENT_ERROR");
-          break;
-        }
-      }
-    }
+  if (picklejar::deep_copy_vector_to_file(
+          string_vec, "example1.data",
+          [](auto &string) { return string.size(); },
+          [](auto &_ofs_output_file, auto &string, size_t element_size) {
+            _ofs_output_file.write(string.data(),
+                                   std::streamsize(element_size));
+            return _ofs_output_file.good();
+          })) {
+    std::puts("WRITE_SUCCESS");
   }
-  ofs_output_file.close();
 
-  std::ifstream ifs_input_file("example1.data");
   std::vector<std::string> result;
-  if (auto optional_size =
-          picklejar::read_object_from_stream<size_t>(ifs_input_file)) {
-    std::puts("READ_VECTOR_SIZE_SUCCESS");
-    result.reserve(optional_size.value());
-    for (size_t i{0}; i < optional_size.value(); ++i) {
-      if (auto optional_string_size =
-              picklejar::read_object_from_stream<size_t>(ifs_input_file)) {
-        std::puts("READ_ELEMENT_SIZE_SUCCESS");
-        // if we got the size of our string in optional_string_size.value()
-        // we create a vector of char and we read the stream into it
-        std::vector<char> char_buffer(optional_string_size.value());
-        ifs_input_file.read(char_buffer.data(),
-                            std::streamsize(optional_string_size.value()));
-        if (ifs_input_file.good()) {
-          std::puts("READ_ELEMENT_SUCCESS");
-          // if read is sucessful we create the string using the char_buffer
-          // iterators
-          result.emplace_back(std::begin(char_buffer), std::end(char_buffer));
-        } else {
-          std::puts("READ_ELEMENT_ERROR");
-          break;
-        }
-      } else {
-        std::puts("READ_ELEMENT_ERROR");
-        break;
-      }
-    }
+  if (auto optional_result{picklejar::deep_read_vector_from_file(
+          result, "example1.data", [](auto &_result, auto &char_buffer) {
+            _result.emplace_back(std::begin(char_buffer),
+                                 std::end(char_buffer));
+          })}) {
+    std::puts(("fifth element=" + optional_result.value().at(4)).c_str());
   }
-  ifs_input_file.close();
-
-  std::puts(("fifth element=" + result.at(4)).c_str());
 ```
+* There are 2 lambdas for the write function:
+1. The first lambda takes an element of the vector to be stored as a parameter and is responsible of returning the number of bytes we need to store. In the case of a string it take a std::string and return the std::string::size().
+2. The second lambda takes the ofstream, an object(in this case a std::string) and the size that is returned by the first lambda. This function is responsible of calling the write function for ofstream with the characters of our std::string and the length to copy into the file.
+
+This allows to use this function for more complex types and all you have to do is tell it how to get the size of the bytes of the object you want to store and where the bytes are.
+
+* There is one lambda for the read function, this lambda is in change of taking a vector of bytes, that contains our string characters in this case, and constructing our string in place into our result vector.
 ## Solution 2: Don't save it and Re-Generate the Non-TriviallyCopiable object when we run the program again.
 This Solution works if you can generate the object without much effort and the non-triviallycopiable object has a default constructor(otherwise see Solution 3 which is prefered to Solution 2), in other words you don't need an exact copy because the data can be generated:
 ```c++
@@ -378,7 +352,7 @@ Picklejar algorithms for **vectors** can read and write data from/to 3 different
 
 ### Explanation of lambda parameters (v2 - operation_modify_using_previous_bytes version)
 Typically this is what you will do in this parameter:
-```
+```c++
           [](auto &blank_instance, auto &valid_bytes_from_new_blank_instance,
              auto &bytes_from_file) {
             picklejar::util::preserve_blank_instance_member(
@@ -391,7 +365,7 @@ Typically this is what you will do in this parameter:
 ```
 In this case we are basically not doing anything, we are copying the valid bytes from our std::string that we created on this application run to a buffer and then we are copying them back into our new instance, essentially not changing it's bytes at all, this is useful for [Solution 4 - Ignore the string](#solution-4-based-in-solution-3-ignore-the-value-and-instead-use-its-default-constructor) as explained above.
 But you can also use ```picklejar::util::preserve_blank_instance_member``` with members of structs and classes:
-```
+```c++
                 constexpr auto class_member_offset =
                     offsetof(UITransposeFilter, id);
                 picklejar::util::preserve_blank_instance_member(

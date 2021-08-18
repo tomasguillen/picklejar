@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
-project(PickleJarTests VERSION 0.1.0 LANGUAGES CXX)
+project(PickleJarExamples VERSION 0.1.0 LANGUAGES CXX)
 
 #START CREATE CMAKE_BUILD_TYPE=Asan Profile
 get_property(isMultiConfig GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
@@ -53,23 +53,12 @@ set(CMAKE_SHARED_LINKER_FLAGS_ASAN
     "Linker lags to be used to create shared libraries for Asan build type." FORCE)
 
   
-add_subdirectory(ut)
-add_subdirectory(hexer)
-
-
 list(APPEND EXTRA_WARNING_FLAGS
   # disable gcc warning about copying memory directly onto strings address, you may try to compile without this if you are using trivial types like ints or basic structs it should work without disabling this warning
   -Wno-class-memaccess
   -Wno-unused
 )
 
-add_executable(PickleJarTests picklejartests.cpp)
-target_link_libraries(PickleJarTests PRIVATE Hexer ut)
-target_compile_features(PickleJarTests PRIVATE cxx_std_20)
-target_compile_options(PickleJarTests PUBLIC ${EXTRA_WARNING_FLAGS})
-
-
-add_executable(PickleJarOptionalExperimentTests optional_return_tests.cpp)
-target_link_libraries(PickleJarOptionalExperimentTests PRIVATE Hexer ut)
-target_compile_features(PickleJarOptionalExperimentTests PRIVATE cxx_std_20)
-target_compile_options(PickleJarOptionalExperimentTests PUBLIC ${EXTRA_WARNING_FLAGS})
+add_executable(PickleJarExamples readme_examples.cpp)
+target_compile_features(PickleJarExamples PRIVATE cxx_std_20)
+target_compile_options(PickleJarExamples PUBLIC ${EXTRA_WARNING_FLAGS})
