@@ -348,6 +348,7 @@ static void exampleSolution1c() {
           [](auto &_result, auto &byte_vector_with_counter) {
             _result.emplace_back(std::begin(byte_vector_with_counter),
                                  std::end(byte_vector_with_counter));
+            return true;
           })}) {
     std::puts(("fifth element=" + optional_result.value().at(4)).c_str());
   }
@@ -379,6 +380,7 @@ static void exampleSolution1dStream() {
           [](auto &_result, auto &byte_vector_with_counter) {
             _result.emplace_back(std::begin(byte_vector_with_counter),
                                  std::end(byte_vector_with_counter));
+            return true;
           })}) {
     std::puts(("fifth element=" + optional_result.value().at(4)).c_str());
   }
@@ -407,6 +409,7 @@ static void exampleSolution1dFile() {
           [](auto &_result, auto &byte_vector_with_counter) {
             _result.emplace_back(std::begin(byte_vector_with_counter),
                                  std::end(byte_vector_with_counter));
+            return true;
           })}) {
     std::puts(("fifth element=" + optional_result.value().at(4)).c_str());
   }
@@ -427,13 +430,14 @@ static void exampleSolution1dBuffer() {
     std::puts("WRITE_SUCCESS");
 
     std::vector<std::string> result;
-    optional_vector_byte_buffer.value().byte_counter =
-        0;  // reset counter so we can read from same buffer
+    optional_vector_byte_buffer.value().set_counter(
+        0);  // reset counter so we can read from same buffer
     if (auto optional_result{picklejar::deep_read_vector_from_buffer(
             result, optional_vector_byte_buffer.value(),
             [](std::vector<std::string> &_result, auto &byte_buffer) {
               _result.emplace_back(std::begin(byte_buffer),
                                    std::end(byte_buffer));
+              return true;
             })}) {
       std::puts(("fifth element=" + optional_result.value().at(0)).c_str());
       hexer::print_vec(result);
@@ -486,13 +490,15 @@ static void exampleSolution1eFile() {
           result, "example1.data",
           [](auto &_result,
              picklejar::ByteVectorWithCounter &byte_vector_with_counter) {
-            int _id = byte_vector_with_counter.read<int>();
+            auto optional_id = byte_vector_with_counter.read<int>();
+            if (!optional_id) return false;
             std::string _pretty_id(
                 std::begin(byte_vector_with_counter) +
-                    int(byte_vector_with_counter.byte_counter),
+                    int(byte_vector_with_counter.byte_counter.value()),
                 std::end(byte_vector_with_counter));
 
-            _result.emplace_back(_id, _pretty_id);
+            _result.emplace_back(optional_id.value(), _pretty_id);
+            return true;
           })}) {
     std::puts(
         ("fifth element_id=" + std::to_string(optional_result.value().at(4).id))
@@ -549,12 +555,14 @@ static void exampleSolution1eFileStructChange() {
           [](auto &_result,
              picklejar::ByteVectorWithCounter &byte_vector_with_counter) {
             size_t size_read = size_t{0};
-            int _id = byte_vector_with_counter.read<int>();
+            auto optional_id = byte_vector_with_counter.read<int>();
+            if (!optional_id) return false;
             std::string _pretty_id(
                 std::begin(byte_vector_with_counter) + size_read,
                 std::end(byte_vector_with_counter));
 
-            _result.emplace_back(_id, _pretty_id);
+            _result.emplace_back(optional_id.value(), _pretty_id);
+            return true;
           })}) {
     std::puts(
         ("fifth element_id=" + std::to_string(optional_result.value().at(4).id))
@@ -589,24 +597,28 @@ static void exampleSolution1eFileStructChange() {
           new_important_pair_vector{_new_important_pair_vector} {}
   };
 
-  // First we have to read using the version <1> and then write using the
-  // version <2> which needs to be changed to write things in the correct order
+  // First we have to read using the version <1> but modified to use our new 3
+  // parameter constructor and then write using the version <2> which needs to
+  // be changed to write things in the correct order
   std::vector<IntBasedStringChanged> result_changed;
   if (auto optional_result{picklejar::deep_read_vector_from_file<1>(
           result_changed, "example1.data",
           [new_elementgenerator = 1.0](auto &_result,
                                        picklejar::ByteVectorWithCounter
                                            &byte_vector_with_counter) mutable {
-            int _id = byte_vector_with_counter.read<int>();
+            auto optional_id = byte_vector_with_counter.read<int>();
+            if (!optional_id) return false;
             std::string _pretty_id(
                 std::begin(byte_vector_with_counter) +
-                    int(byte_vector_with_counter.byte_counter),
+                    int(byte_vector_with_counter.byte_counter.value()),
                 std::end(byte_vector_with_counter));
             // we added a new member so we need to generate it here
             std::vector<std::pair<double, double>> _new_important_pair_vector{
                 {1.0, .3 * new_elementgenerator},
                 {0.3, 1.0 * ++new_elementgenerator}};
-            _result.emplace_back(_id, _pretty_id, _new_important_pair_vector);
+            _result.emplace_back(optional_id.value(), _pretty_id,
+                                 _new_important_pair_vector);
+            return true;
           })}) {
   }
   std::puts(
@@ -614,7 +626,55 @@ static void exampleSolution1eFileStructChange() {
   std::puts(
       ("fifth element_rand_id=" + result_changed.at(4).rand_str_id).c_str());
   std::puts("TEST");
+#if 1
+  if (picklejar::deep_copy_vector_to_file<2>(
+          result_changed, "example1.data",
+          [](const IntBasedStringChanged &object) {
+            return sizeof(IntBasedString::id) + object.rand_str_id.size();
+          },
+          [](auto &_ofs_output_file, const IntBasedStringChanged &object,
+             size_t element_size) {
+            // write the id
+            if (!picklejar::write_object_to_stream(object.id,
+                                                   _ofs_output_file)) {
+              return false;
+            }
+            // wee need to manually write it for the rand_str_id because a
+            // string can have variable size
+            return picklejar::basic_stream_write(_ofs_output_file,
+                                                 object.rand_str_id.data(),
+                                                 object.rand_str_id.size());
+          })) {
+    std::puts("WRITE_SUCCESS");
+  } else {
+    std::puts("WRITE_ERROR");
+  }
 
+  std::vector<IntBasedStringChanged> result_changed_v2;
+  if (auto optional_result{picklejar::deep_read_vector_from_file<2>(
+          result_changed_v2, "example1.data",
+          [new_elementgenerator = 1.0](auto &_result,
+                                       picklejar::ByteVectorWithCounter
+                                           &byte_vector_with_counter) mutable {
+            auto optional_id = byte_vector_with_counter.read<int>();
+	    if(!optional_id) return false;
+            std::string _pretty_id(
+                std::begin(byte_vector_with_counter) +
+                    int(byte_vector_with_counter.byte_counter.value()),
+                std::end(byte_vector_with_counter));
+            // we added a new member so we need to generate it here
+            std::vector<std::pair<double, double>> _new_important_pair_vector{
+                {1.0, .3 * new_elementgenerator},
+                {0.3, 1.0 * ++new_elementgenerator}};
+            _result.emplace_back(optional_id.value(), _pretty_id, _new_important_pair_vector);
+	    return true;
+          })}) {
+    std::puts(("fifth element_id=" + std::to_string(result_changed.at(4).id))
+                  .c_str());
+    std::puts(
+        ("fifth element_rand_id=" + result_changed.at(4).rand_str_id).c_str());
+  }
+#endif
 #if 0
   // we make version 2 of our write function
   if (picklejar::deep_copy_vector_to_file<2>(
@@ -632,6 +692,7 @@ static void exampleSolution1eFileStructChange() {
             // we have changed it to first write the string data and then the
             // int id
             std::puts(std::to_string(object.rand_str_id.size()).c_str());
+	    std::puts(object.rand_str_id.c_str());
             if (!picklejar::write_object_to_stream(object.rand_str_id.size(),
                                                    _ofs_output_file))
               return false;
@@ -660,24 +721,27 @@ static void exampleSolution1eFileStructChange() {
           [](auto &_result,
              picklejar::ByteVectorWithCounter &byte_vector_with_counter) {
             const size_t size_of_id = sizeof(IntBasedStringChanged::id);
-            const auto size_of_string_id =
+            auto optional_size_of_string =
                 byte_vector_with_counter.read<size_t>();
-
+            if (!optional_size_of_string) return false;
             std::string _pretty_id(
-                std::begin(byte_vector_with_counter.byte_data),
-                std::begin(byte_vector_with_counter.byte_data) +
-                    int(size_of_string_id));
-            std::puts((std::to_string(size_of_string_id) + " " +
+                std::begin(byte_vector_with_counter),
+                std::begin(byte_vector_with_counter) +
+                    int(optional_size_of_string.value()));
+            std::puts((std::to_string(optional_size_of_string.value()) + " " +
                        std::to_string(_pretty_id.size()))
                           .c_str());
             std::puts(_pretty_id.c_str());
             // advance byte_count by size of the string
-            byte_vector_with_counter.byte_counter += size_of_string_id;
-            int _id = byte_vector_with_counter.read<int>();
+            byte_vector_with_counter.byte_counter.value() +=
+                optional_size_of_string.value();
+            auto optional_id = byte_vector_with_counter.read<int>();
+            if (!optional_id) return false;
 
             std::vector<std::pair<double, double>> _new_important_pair_vector{
                 {1.0, .3}, {0.3, 1.0}};
             _result.emplace_back(0, _pretty_id, _new_important_pair_vector);
+            return true;
           })}) {
     std::puts(
         ("fifth element_id=" + std::to_string(optional_result.value().at(0).id))
