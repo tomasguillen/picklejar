@@ -61,6 +61,7 @@ list(APPEND EXTRA_WARNING_FLAGS
   # disable gcc warning about copying memory directly onto strings address, you may try to compile without this if you are using trivial types like ints or basic structs it should work without disabling this warning
   -Wno-class-memaccess
   -Wno-unused
+  # -fconcepts-ts use this if you need to compile with c++ version less than c++ 20
 )
 
 add_executable(PickleJarTests picklejartests.cpp)

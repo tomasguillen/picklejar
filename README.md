@@ -2,7 +2,7 @@
 Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers.
 
 
-## How to use PickleJar to store and recall TriviallyCopiable Types (simple ints, floats, doubles, trivial structs and classes, etc)
+## How to use PickleJar to store and recall Trivial Types (ints, floats, doubles, simple structs and classes, etc)
 This is how to write a vector of ints to a file named "example1.data":
 ```c++
   std::vector<int> int_vec{0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512};
@@ -37,16 +37,17 @@ There are 4 things you can do for Non-TriviallyCopiable types:
 3. Solution 3: Re-Generate the object using it's constructor.
 4. Solution 4: Based in **Solution 3**. Ignore the value and instead use it's default constructor.
 ## Solution 1: Copy the size of the non-triviallycopiable object along with it's bytes (this way we know how many characters to read/store)
-In order to be able to "deep copy" our string we will need to do the following:
+In order to be able to "deep copy" our string, we will need to store how many bytes each string has just before we store the data, this can be done with PickleJar like so (using **deep_copy_vector_to_file** and **deep_read_vector_from_file**):
 ```c++
+static void exampleSolution1dFile() {
   std::vector<std::string> string_vec{"0",  "1",  "2",   "4",   "8",   "16",
                                       "32", "64", "128", "256", "512", "1024"};
 
   if (picklejar::deep_copy_vector_to_file(
           string_vec, "example1.data",
           [](auto &string) { return string.size(); },
-          [](auto &_ofs_output_file, auto &string, size_t element_size) {
-            _ofs_output_file.write(string.data(),
+          [](auto &_ofs_output_file, auto &object, size_t element_size) {
+            _ofs_output_file.write(object.data(),
                                    std::streamsize(element_size));
             return _ofs_output_file.good();
           })) {
@@ -61,17 +62,21 @@ In order to be able to "deep copy" our string we will need to do the following:
           })}) {
     std::puts(("fifth element=" + optional_result.value().at(4)).c_str());
   }
+}
 ```
 * There are 2 lambdas for the write function:
-1. The first lambda takes an element of the vector to be stored as a parameter and is responsible of returning the number of bytes we need to store. In the case of a string it take a std::string and return the std::string::size().
-2. The second lambda takes the ofstream, an object(in this case a std::string) and the size that is returned by the first lambda. This function is responsible of calling the write function for ofstream with the characters of our std::string and the length to copy into the file.
+1. The first lambda takes an element of the vector to be stored as a parameter and is responsible of returning the number of bytes we need to store. In the case of a string it takes a **std::string** and returns the **std::string::size()**.
+2. The second lambda takes the ofstream, an object(in this case a std::string) and the size that is returned by the first lambda. This function is responsible of calling the write function for ofstream with the characters of our std::string and the length to copy into the file. It must return true if the write is successful which is why we return ```_ofs_output_file.good()```.
 
 This allows to use this function for more complex types and all you have to do is tell it how to get the size of the bytes of the object you want to store and where the bytes are.
 
-* There is one lambda for the read function, this lambda is in change of taking a vector of bytes, that contains our string characters in this case, and constructing our string in place into our result vector.
+* There is one lambda for the read function, this lambda is in charge of taking a vector of bytes, that contains our string characters in this case, and constructing our string in place into our result vector.
+## Solution 1: For a more complex case.
+
 ## Solution 2: Don't save it and Re-Generate the Non-TriviallyCopiable object when we run the program again.
-This Solution works if you can generate the object without much effort and the non-triviallycopiable object has a default constructor(otherwise see Solution 3 which is prefered to Solution 2), in other words you don't need an exact copy because the data can be generated:
+This Solution works if you can generate the object without much effort and the non-triviallycopiable object has a default constructor(otherwise see Solution 3 which is prefered to Solution 2), in other words you don't need an exact copy because the data can be generated (using **write_vector_to_file** and **read_vector_from_file<std::string>**):
 ```c++
+static void exampleSolution2() {
   std::vector<std::string> string_vec{
       "string1", "string2", "string3", "string4",  "string5", "string6",
       "string7", "string8", "string9", "string10", "string11"};
@@ -84,12 +89,10 @@ This Solution works if you can generate the object without much effort and the n
           [count = 0](auto &blank_instance,
                       auto &valid_bytes_from_new_blank_instance,
                       auto &bytes_from_file) mutable {
-            picklejar::util::preserve_blank_instance_member(
-                0, sizeof(std::string), valid_bytes_from_new_blank_instance,
-                bytes_from_file);
-            picklejar::util::copy_new_bytes_to_instance(
-                valid_bytes_from_new_blank_instance, blank_instance,
-                sizeof(std::string));
+            // we are passed a blank_instance of a std::string which will be
+            // added to our vector. We don't need to do anything with the other
+            // parameters since a string is a very simple object and we don't
+            // need the bytes from the file to generate this
             blank_instance = "string" + std::to_string(++count);
           });
       optional_read_vector.has_value()) {
@@ -99,10 +102,12 @@ This Solution works if you can generate the object without much effort and the n
                   .c_str());
     hexer::print_vec(optional_read_vector.value());
   }
+}
 ```
 ## Solution 3: Re-Generate the object using it's constructor.
-This is same principle as solution 2 but instead of modifying the string after we have default constructed, we pass a lambda that returns a tuple as a fourth parameter of **read_vector_from_file**, the tuple will be used by PickleJar to construct the object in place, as if you passed the contents of the tuple as parameters to the Non-TriviallyCopiable Type:
+This is same principle as solution 2 but instead of modifying the string after we have default constructed, we pass a lambda that returns a tuple as a fourth parameter of **read_vector_from_file**, the tuple will be used by PickleJar to construct the object in place, as if you passed the contents of the tuple as parameters to the Non-TriviallyCopiable Type (using **write_vector_to_file** and **read_vector_from_file<std::string>**):
 ```c++
+static void exampleSolution3() {
   std::vector<std::string> string_vec{
       "string1", "string2", "string3", "string4",  "string5", "string6",
       "string7", "string8", "string9", "string10", "string11"};
@@ -114,16 +119,14 @@ This is same principle as solution 2 but instead of modifying the string after w
           "example1.data",
           [](auto &blank_instance, auto &valid_bytes_from_new_blank_instance,
              auto &bytes_from_file) {
-            picklejar::util::preserve_blank_instance_member(
-                0, sizeof(std::string), valid_bytes_from_new_blank_instance,
-                bytes_from_file);
-            picklejar::util::copy_new_bytes_to_instance(
-                valid_bytes_from_new_blank_instance, blank_instance,
-                sizeof(std::string));
+            // we don't have to do anything here since we have constructed our
+            // string directly. We no longer modify the string in this lambda
           },
           [count = 0]() mutable {
             // we return a tuple with the parameters used to construct our
-            // non-trivially copiable type
+            // non-trivially copiable type. This will be useful for more
+            // complex types, like structs that have strings in them.
+            // We made the lambda mutable to be able to use a counter
             return make_tuple("string" + std::to_string(++count));
           });
       optional_read_vector.has_value()) {
@@ -131,10 +134,12 @@ This is same principle as solution 2 but instead of modifying the string after w
         ("READSUCCESS: fifth_element=" + optional_read_vector.value().at(4))
             .c_str());
   }
+}
 ```
 ## Solution 4: Based in **Solution 3**. Ignore the value and instead use it's default constructor.
-In this case we just default generate all the strings, which in turn will make all of them be empty strings.
+In this case we just default generate all the strings, which in turn will make all of them be empty strings (using **write_vector_to_file** and **read_vector_from_file<std::string>**):
 ```c++
+static void exampleSolution4() {
   std::vector<std::string> string_vec{
       "string1", "string2", "string3", "string4",  "string5", "string6",
       "string7", "string8", "string9", "string10", "string11"};
@@ -145,19 +150,13 @@ In this case we just default generate all the strings, which in turn will make a
   if (auto optional_read_vector = picklejar::read_vector_from_file<std::string>(
           "example1.data",
           [](auto &blank_instance, auto &valid_bytes_from_new_blank_instance,
-             auto &bytes_from_file) {
-            picklejar::util::preserve_blank_instance_member(
-                0, sizeof(std::string), valid_bytes_from_new_blank_instance,
-                bytes_from_file);
-            picklejar::util::copy_new_bytes_to_instance(
-                valid_bytes_from_new_blank_instance, blank_instance,
-                sizeof(std::string));
-          });
+             auto &bytes_from_file) {});
       optional_read_vector.has_value()) {
-    std::puts(
-        ("READSUCCESS: fifth_element=" + optional_read_vector.value().at(4))
-            .c_str());
+    std::puts(("READSUCCESS: fifth_element(should be empty string)=" +
+               optional_read_vector.value().at(4))
+                  .c_str());
   }
+}
 ```
 
 ## Explanation about Non-TriviallyCopiable Types
@@ -219,7 +218,7 @@ Now our first step is to preserve our blank instance valid string bytes, for thi
                 0, sizeof(std::string), valid_bytes_from_new_blank_instance,
                 bytes_from_file);
             picklejar::util::copy_new_bytes_to_instance(
-                valid_bytes_from_new_blank_instance, blank_instance,
+                bytes_from_file, blank_instance,
                 sizeof(std::string));
           });
       optional_read_vector.has_value()) {
@@ -246,7 +245,7 @@ picklejar::util::preserve_blank_instance_member(
 2. Copy our fixed bytes to our blank instance memory address, in this case nothing changes since we are "preserving" the original string in essense we have copied the same bytes the string had before:
 ```c++
 picklejar::util::copy_new_bytes_to_instance(
-                valid_bytes_from_new_blank_instance, blank_instance,
+                bytes_from_file, blank_instance,
                 sizeof(std::string));
 ```
 **copy_new_bytes_to_instance** takes the following parameters:
@@ -281,7 +280,7 @@ Code-wise, Solution 2 is identical to Solution 4 except at the end of the **oper
                 0, sizeof(std::string), valid_bytes_from_new_blank_instance,
                 bytes_from_file);
             picklejar::util::copy_new_bytes_to_instance(
-                valid_bytes_from_new_blank_instance, blank_instance,
+                bytes_from_file, blank_instance,
                 sizeof(std::string));
             blank_instance = "string" + std::to_string(++count);
           });
@@ -311,7 +310,7 @@ Code-wise, Solution 3 is identical to Solution 2 except we add a fourth paramete
                 0, sizeof(std::string), valid_bytes_from_new_blank_instance,
                 bytes_from_file);
             picklejar::util::copy_new_bytes_to_instance(
-                valid_bytes_from_new_blank_instance, blank_instance,
+                bytes_from_file, blank_instance,
                 sizeof(std::string));
           },
           [count = 0]() mutable {
@@ -359,7 +358,7 @@ Typically this is what you will do in this parameter:
                 0, sizeof(std::string), valid_bytes_from_new_blank_instance,
                 bytes_from_file);
             picklejar::util::copy_new_bytes_to_instance(
-                valid_bytes_from_new_blank_instance, blank_instance,
+                bytes_from_file, blank_instance,
                 sizeof(std::string));
           }
 ```

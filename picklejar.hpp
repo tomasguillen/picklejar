@@ -220,6 +220,8 @@ class ManagedAlignedUnionCopy {
 #define ManagedAlignedCopyDefault ManagedAlignedStorageCopy
 // END READ_API_HELPERS
 // START CONCEPTS
+// only enable concepts if c++ > 17
+#if ((defined(_MSVC_LANG) && _MSVC_LANG > 201703L) || __cplusplus > 201703L)
 template <typename C, typename T>
 concept ContainerHasPushBack = requires(C a, T type) {
   { C() } -> std::same_as<C>;
@@ -277,6 +279,11 @@ concept PickleJarWriteLambdaRequirements = requires(
   "lambda function takes the right parameters and returns true if write is "   \
   "successful"
 
+#define PICKLEJAR_CONCEPT(conditional, message) \
+  static_assert(conditional, message)
+#else
+#define PICKLEJAR_CONCEPT(conditional, message)
+#endif
 // END CONCEPTS
 
 // START READ_API
@@ -296,7 +303,7 @@ template <class Type,
 [[nodiscard]] auto operation_specific_read_object_from_stream(
     ManagedAlignedCopy &copy, std::ifstream &ifstream_input_file)
     -> ManagedAlignedCopy & {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   ifstream_input_file.read(
       reinterpret_cast<char *>(copy.get_pointer_to_copy()),  // NOLINT
       sizeof(Type));
@@ -308,7 +315,7 @@ template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
 [[nodiscard]] auto read_object_from_stream(std::ifstream &ifstream_input_file)
     -> std::optional<Type> {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   if (ifstream_is_invalid(ifstream_input_file)) {
     return {};
   }
@@ -330,7 +337,7 @@ template <class Type,
 [[nodiscard]] auto read_object_from_file(ManagedAlignedCopy &copy,
                                          const std::string file_name)
     -> std::optional<ManagedAlignedCopy *> {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   std::ifstream ifstream_input_file(file_name, std::ios::in | std::ios::binary);
   if (ifstream_is_invalid(ifstream_input_file)) {
     return {};
@@ -349,7 +356,7 @@ template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
 [[nodiscard]] auto read_object_from_file(const std::string file_name)
     -> std::optional<Type> {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   ManagedAlignedCopy copy{};
   auto lower_level_return{
       read_object_from_file<Type, ManagedAlignedCopy>(copy, file_name)};
@@ -367,9 +374,9 @@ template <typename Type,
 [[nodiscard]] auto read_vector_from_stream(Container &vector_input_data,
                                            std::ifstream &ifstream_input_file)
     -> std::optional<Container> {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
-  static_assert(ContainerHasPushBack<Container, Type>,
-                CONTAINERWITHHASPUSHBACK_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT((ContainerHasPushBack<Container, Type>),
+                    CONTAINERWITHHASPUSHBACK_MSG);
   if (ifstream_is_invalid(
           ifstream_input_file)) {  // important to check this before
                                    // ifstream_filesize because it clears state
@@ -408,9 +415,9 @@ template <class Type,
           class Container = std::vector<Type>>
 [[nodiscard]] auto read_vector_from_file(const std::string file_name)
     -> std::optional<Container> {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
-  static_assert(ContainerHasPushBack<Container, Type>,
-                CONTAINERWITHHASPUSHBACK_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT((ContainerHasPushBack<Container, Type>),
+                    CONTAINERWITHHASPUSHBACK_MSG);
   Container vector_input_data;
   std::ifstream ifstream_input_file(file_name, std::ios::in | std::ios::binary);
   if (ifstream_is_invalid(ifstream_input_file)) {
@@ -449,7 +456,7 @@ template <class Type,
 auto read_object_from_stream(std::ifstream &ifstream_input_file,
                              auto &&operation_modify_using_previous_bytes)
     -> std::optional<Type> {
-  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
+  PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   ManagedAlignedCopy copy{};
   if (ifstream_is_invalid(ifstream_input_file)) {
     return {};
@@ -483,7 +490,7 @@ auto read_object_from_file(ManagedAlignedCopy &copy,
                            const std::string file_name,
                            auto &&operation_modify_using_previous_bytes)
     -> std::optional<ManagedAlignedCopy *> {
-  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
+  PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   std::ifstream ifstream_input_file(file_name, std::ios::in | std::ios::binary);
   if (ifstream_is_invalid(ifstream_input_file)) {
     return {};
@@ -503,7 +510,7 @@ template <class Type,
 auto read_object_from_file(const std::string file_name,
                            auto &&operation_modify_using_previous_bytes)
     -> std::optional<Type> {
-  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
+  PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   ManagedAlignedCopy copy{};
   auto lower_level_return{read_object_from_file<Type, ManagedAlignedCopy>(
       copy, file_name, operation_modify_using_previous_bytes)};
@@ -522,9 +529,9 @@ auto operation_specific_read_object_from_buffer(
     ManagedAlignedCopy &copy, BufferContainer &buffer_with_input_bytes,
     size_t &bytes_read_so_far, auto &&operation_modify_using_previous_bytes)
     -> ManagedAlignedCopy & {
-  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
-  static_assert(ContainerHasDataAndSize<BufferContainer>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
 
   std::array<char, sizeof(Type)> valid_bytes_from_new_blank_instance{};
   std::memcpy(valid_bytes_from_new_blank_instance.data(),
@@ -549,9 +556,9 @@ auto read_object_from_buffer(BufferContainer &buffer_with_input_bytes,
                              size_t &bytes_read_so_far,
                              auto &&operation_modify_using_previous_bytes)
     -> Type {
-  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
-  static_assert(ContainerHasDataAndSize<BufferContainer>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
   ManagedAlignedCopy copy{};
   return *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
                copy, buffer_with_input_bytes, bytes_read_so_far,
@@ -610,8 +617,8 @@ template <class Type,
     BufferContainer &buffer_with_input_bytes, size_t &bytes_read_so_far,
     auto &&operation_modify_using_previous_bytes, auto &&constructor_generator)
     -> Type {
-  static_assert(ContainerHasDataAndSize<BufferContainer>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
   ManagedAlignedCopy copy{constructor_generator()};
   return *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
                copy, buffer_with_input_bytes, bytes_read_so_far,
@@ -644,9 +651,9 @@ template <class Type,
 [[nodiscard]] auto operation_specific_read_object_from_buffer(
     ManagedAlignedCopy &copy, BufferContainer &buffer_with_input_bytes,
     size_t &bytes_read_so_far) -> ManagedAlignedCopy & {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
-  static_assert(ContainerHasDataAndSize<BufferContainer>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
   util::copy_new_bytes_to_instance(
       *(buffer_with_input_bytes.data() + bytes_read_so_far),
       *copy.get_pointer_to_copy(), sizeof(Type));
@@ -661,9 +668,9 @@ template <class Type,
 [[nodiscard]] auto read_object_from_buffer(
     BufferContainer &buffer_with_input_bytes, size_t &bytes_read_so_far)
     -> Type {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
-  static_assert(ContainerHasDataAndSize<BufferContainer>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
   ManagedAlignedCopy copy{};
   return *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
                copy, buffer_with_input_bytes, bytes_read_so_far))
@@ -679,11 +686,11 @@ template <class Type,
 [[nodiscard]] constexpr auto read_vector_from_buffer(
     Container &vector_input_data, BufferContainer &buffer_with_input_bytes)
     -> std::optional<Container> {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
-  static_assert(ContainerHasPushBack<Container, Type>,
-                CONTAINERWITHHASPUSHBACK_MSG);
-  static_assert(ContainerHasDataAndSize<BufferContainer>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT((ContainerHasPushBack<Container, Type>),
+                    CONTAINERWITHHASPUSHBACK_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
   auto file_size = buffer_with_input_bytes.size();
   auto initial_vector_size = vector_input_data.size();
   // std::puts(("file_length: " + std::to_string(file_size)).c_str());
@@ -717,8 +724,8 @@ template <class Type,
     Container &vector_input_data, BufferContainer &buffer_with_input_bytes,
     auto &&operation_modify_using_previous_bytes, auto &&constructor_generator)
     -> std::optional<Container> {
-  static_assert(ContainerHasDataAndSize<BufferContainer>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
   auto file_size = buffer_with_input_bytes.size();
   auto initial_vector_size = vector_input_data.size();
   // std::puts(("file_length: " + std::to_string(file_size)).c_str());
@@ -799,7 +806,7 @@ template <class Type,
 [[nodiscard]] auto read_vector_from_stream(
     Container &vector_input_data, std::ifstream &ifstream_input_file,
     auto &&operation_modify_using_previous_bytes) -> std::optional<Container> {
-  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
+  PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   return read_vector_from_stream<Type, ManagedAlignedCopy>(
       vector_input_data, ifstream_input_file,
       operation_modify_using_previous_bytes, return_empty_tuple);
@@ -812,9 +819,9 @@ template <class Type,
 [[nodiscard]] constexpr auto read_vector_from_buffer(
     Container &vector_input_data, BufferContainer &buffer_with_input_bytes,
     auto &&operation_modify_using_previous_bytes) -> std::optional<Container> {
-  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
-  static_assert(ContainerHasDataAndSize<BufferContainer>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
   return read_vector_from_buffer<Type, ManagedAlignedCopy>(
       vector_input_data, buffer_with_input_bytes,
       operation_modify_using_previous_bytes, return_empty_tuple);
@@ -827,7 +834,7 @@ template <class Type,
 [[nodiscard]] auto read_vector_from_file(
     const std::string file_name, auto &&operation_modify_using_previous_bytes)
     -> std::optional<Container> {
-  static_assert(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
+  PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   Container vector_input_data;
 
   std::ifstream ifstream_input_file(file_name, std::ios::in | std::ios::binary);
@@ -874,9 +881,10 @@ template <class BufferOrStreamObject,
 auto write_object_deep_copy(const Type &object, const size_t object_size,
                             BufferOrStreamObject &buffer_or_stream_object,
                             WriteElementLambda &&write_element_lambda) -> bool {
-  static_assert(PickleJarWriteLambdaRequirements<WriteElementLambda,
-                                                 BufferOrStreamObject, Type>,
-                WRITELAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT(
+      (PickleJarWriteLambdaRequirements<WriteElementLambda,
+                                        BufferOrStreamObject, Type>),
+      WRITELAMBDAREQUIREMENTS_MSG);
   if (WriteSizeFunction(object_size, buffer_or_stream_object)) {
     return write_element_lambda(buffer_or_stream_object, object,
                                 object_size);  // NOLINT
@@ -884,135 +892,34 @@ auto write_object_deep_copy(const Type &object, const size_t object_size,
   return false;
 }
 
-template <class BufferOrStreamObject,
+template <size_t Version = 0, class BufferOrStreamObject,
           bool WriteSizeFunction(const size_t &, BufferOrStreamObject &) =
               picklejar::write_object_to_stream<size_t>,
           class Container, class Type = typename Container::value_type,
           class WriteElementLambda>
 auto write_vector_deep_copy(const Container &vector_input_data,
-                            BufferOrStreamObject &ofs_output_file,
+                            BufferOrStreamObject &buffer_or_stream_object,
                             auto &&element_size_getter,
                             WriteElementLambda &&write_element_lambda) -> bool {
-  static_assert(PickleJarWriteLambdaRequirements<WriteElementLambda,
-                                                 BufferOrStreamObject, Type>,
-                WRITELAMBDAREQUIREMENTS_MSG);
-  if (!vector_input_data.empty() and
-      WriteSizeFunction(vector_input_data.size(), ofs_output_file)) {
+  PICKLEJAR_CONCEPT(
+      (PickleJarWriteLambdaRequirements<WriteElementLambda,
+                                        BufferOrStreamObject, Type>),
+      WRITELAMBDAREQUIREMENTS_MSG);
+  if (vector_input_data.empty()) return false;
+  if constexpr (Version > 0) {
+    if (!WriteSizeFunction(Version, buffer_or_stream_object)) return false;
+  }
+  if (WriteSizeFunction(vector_input_data.size(), buffer_or_stream_object)) {
     for (auto &object : vector_input_data) {
       // for each element we write the size of the object first
       if (!write_object_deep_copy<BufferOrStreamObject, WriteSizeFunction>(
-              object, element_size_getter(object), ofs_output_file,
+              object, element_size_getter(object), buffer_or_stream_object,
               write_element_lambda))
         return false;
     }
     return true;
   }
   return false;
-}
-
-template <class BufferOrStreamObject,
-          std::optional<size_t> ReadSizeFunction(BufferOrStreamObject &) =
-              picklejar::read_object_from_stream<size_t>,
-          bool ReadBufferOrStreamFunction(BufferOrStreamObject &, char *,
-                                          const size_t) =
-              picklejar::basic_stream_read>
-auto read_object_deep_copy(BufferOrStreamObject &ifs_input_file,
-                           auto &&byte_buffer_function) {
-  if (auto optional_string_size = ReadSizeFunction(ifs_input_file)) {
-    // if we got the size of our object in optional_string_size.value()
-    // we create a vector of char and we read the stream into it
-    std::vector<char> byte_buffer(optional_string_size.value());
-    if (ReadBufferOrStreamFunction(ifs_input_file, byte_buffer.data(),
-                                   optional_string_size.value())) {
-      // if read is sucessful we create the object using it's byte_buffer bytes
-      byte_buffer_function(byte_buffer);
-      return true;
-    }
-  }
-  return false;
-}
-
-template <class BufferOrStreamObject,
-          std::optional<size_t> ReadSizeFunction(BufferOrStreamObject &) =
-              picklejar::read_object_from_stream<size_t>,
-          bool ReadBufferOrStreamFunction(BufferOrStreamObject &, char *,
-                                          const size_t) =
-              picklejar::basic_stream_read,
-          class Container>
-auto read_vector_deep_copy(Container &result,
-                           BufferOrStreamObject &ifs_input_file,
-                           auto &&vector_insert_element_function)
-    -> std::optional<Container> {
-  size_t result_initial_size{result.size()};
-  if (auto optional_size = ReadSizeFunction(ifs_input_file)) {
-    result.reserve(optional_size.value());
-    for (size_t i{0}; i < optional_size.value(); ++i) {
-      read_object_deep_copy<BufferOrStreamObject, ReadSizeFunction,
-                            ReadBufferOrStreamFunction>(
-          ifs_input_file, [&](auto &byte_buffer) {
-            vector_insert_element_function(result, byte_buffer);
-          });
-    }
-  }
-  if (result.size() > result_initial_size) {
-    return std::make_optional(result);
-  }
-  return {};
-}
-
-template <class Container, class WriteElementLambda,
-          typename Type = typename Container::value_type>
-auto deep_copy_vector_to_stream(const Container &vector_input_data,
-                                std::ofstream &ofs_output_file,
-                                auto &&element_size_getter,
-                                WriteElementLambda &&write_element_lambda)
-    -> bool {
-  static_assert(ContainerHasDataAndSize<Container>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
-  static_assert(
-      PickleJarWriteLambdaRequirements<WriteElementLambda, std::ofstream, Type>,
-      WRITELAMBDAREQUIREMENTS_MSG);
-  return write_vector_deep_copy(vector_input_data, ofs_output_file,
-                                element_size_getter, write_element_lambda);
-}
-
-template <class Container, class WriteElementLambda,
-          typename Type = typename Container::value_type>
-auto deep_copy_vector_to_file(const Container &vector_input_data,
-                              const std::string file_name,
-                              auto &&element_size_getter,
-                              WriteElementLambda &&write_element_lambda)
-    -> bool {
-  static_assert(ContainerHasDataAndSize<Container>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
-  static_assert(
-      PickleJarWriteLambdaRequirements<WriteElementLambda, std::ofstream, Type>,
-      WRITELAMBDAREQUIREMENTS_MSG);
-  std::ofstream ofs_output_file(file_name);
-  return write_vector_deep_copy(vector_input_data, ofs_output_file,
-                                element_size_getter, write_element_lambda);
-}
-
-template <class Container, typename Type = typename Container::value_type>
-auto deep_read_vector_from_stream(Container &result,
-                                  std::ifstream &ifs_input_file,
-                                  auto &&vector_insert_element_function)
-    -> std::optional<Container> {
-  static_assert(ContainerHasDataAndSize<Container>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
-  return read_vector_deep_copy(result, ifs_input_file,
-                               vector_insert_element_function);
-}
-
-template <class Container, typename Type = typename Container::value_type>
-auto deep_read_vector_from_file(Container &result, const std::string file_name,
-                                auto &&vector_insert_element_function)
-    -> std::optional<Container> {
-  static_assert(ContainerHasDataAndSize<Container>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
-  std::ifstream ifs_input_file(file_name);
-  return read_vector_deep_copy(result, ifs_input_file,
-                               vector_insert_element_function);
 }
 
 struct ByteVectorWithCounter {
@@ -1037,18 +944,147 @@ struct ByteVectorWithCounter {
   void write(const Type &object) {
     write(object, sizeof(Type));
   }
+  [[nodiscard]] auto size() const { return byte_data.size(); }
+  [[nodiscard]] auto size_remaining() const { return size() - byte_counter; }
+
   template <class Type>
   auto read() -> Type {
+    if (sizeof(Type) > size_remaining()) return false;
     return read_object_from_buffer<Type>(byte_data, byte_counter);
   }
   auto read(auto *destination_to_copy_to, const size_t size_to_read) -> bool {
+    if (size_to_read > size_remaining()) return false;
     std::memcpy(reinterpret_cast<char *>(destination_to_copy_to),
                 byte_data.data() + byte_counter,  // NOLINT
                 size_to_read);
     byte_counter += size_to_read;
     return true;
   }
+  auto begin() { return std::begin(byte_data); }
+  auto end() { return std::end(byte_data); }
+  friend auto begin(ByteVectorWithCounter &byte_vector_with_counter) {
+    return byte_vector_with_counter.begin();
+  }
+  friend auto end(ByteVectorWithCounter &byte_vector_with_counter) {
+    return byte_vector_with_counter.end();
+  }
 };
+
+template <class BufferOrStreamObject,
+          std::optional<size_t> ReadSizeFunction(BufferOrStreamObject &) =
+              picklejar::read_object_from_stream<size_t>,
+          bool ReadBufferOrStreamFunction(BufferOrStreamObject &, char *,
+                                          const size_t) =
+              picklejar::basic_stream_read>
+auto read_object_deep_copy(BufferOrStreamObject &buffer_or_stream_object,
+                           auto &&byte_buffer_function) {
+  if (auto optional_string_size = ReadSizeFunction(buffer_or_stream_object)) {
+    // if we got the size of our object in optional_string_size.value()
+    // we create a vector of char and we read the stream into it
+    ByteVectorWithCounter byte_buffer(optional_string_size.value());
+    if (ReadBufferOrStreamFunction(buffer_or_stream_object,
+                                   byte_buffer.byte_data.data(),
+                                   optional_string_size.value())) {
+      // if read is sucessful we create the object using it's byte_buffer bytes
+      byte_buffer_function(byte_buffer);
+      return true;
+    }
+  }
+  return false;
+}
+
+template <size_t Version = 0, class BufferOrStreamObject,
+          std::optional<size_t> ReadSizeFunction(BufferOrStreamObject &) =
+              picklejar::read_object_from_stream<size_t>,
+          bool ReadBufferOrStreamFunction(BufferOrStreamObject &, char *,
+                                          const size_t) =
+              picklejar::basic_stream_read,
+          class Container>
+auto read_vector_deep_copy(Container &result,
+                           BufferOrStreamObject &buffer_or_stream_object,
+                           auto &&vector_insert_element_function)
+    -> std::optional<Container> {
+  size_t result_initial_size{result.size()};
+  if constexpr (Version > 0) {
+    if (auto optional_version = ReadSizeFunction(buffer_or_stream_object);
+        !optional_version or optional_version.value() != Version) {
+      return {};
+    }
+  }
+  if (auto optional_size = ReadSizeFunction(buffer_or_stream_object)) {
+    result.reserve(optional_size.value());
+    for (size_t i{0}; i < optional_size.value(); ++i) {
+      read_object_deep_copy<BufferOrStreamObject, ReadSizeFunction,
+                            ReadBufferOrStreamFunction>(
+          buffer_or_stream_object, [&](auto &byte_buffer) {
+            vector_insert_element_function(result, byte_buffer);
+          });
+    }
+  }
+  if (result.size() > result_initial_size) {
+    return std::make_optional(result);
+  }
+  return {};
+}
+
+template <size_t Version = 0, class Container, class WriteElementLambda,
+          typename Type = typename Container::value_type>
+auto deep_copy_vector_to_stream(const Container &vector_input_data,
+                                std::ofstream &ofs_output_file,
+                                auto &&element_size_getter,
+                                WriteElementLambda &&write_element_lambda)
+    -> bool {
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT((PickleJarWriteLambdaRequirements<WriteElementLambda,
+                                                      std::ofstream, Type>),
+                    WRITELAMBDAREQUIREMENTS_MSG);
+  return write_vector_deep_copy<Version>(vector_input_data, ofs_output_file,
+                                         element_size_getter,
+                                         write_element_lambda);
+}
+
+template <size_t Version = 0, class Container, class WriteElementLambda,
+          typename Type = typename Container::value_type>
+auto deep_copy_vector_to_file(const Container &vector_input_data,
+                              const std::string file_name,
+                              auto &&element_size_getter,
+                              WriteElementLambda &&write_element_lambda)
+    -> bool {
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT((PickleJarWriteLambdaRequirements<WriteElementLambda,
+                                                      std::ofstream, Type>),
+                    WRITELAMBDAREQUIREMENTS_MSG);
+  std::ofstream ofs_output_file(file_name);
+  return write_vector_deep_copy<Version>(vector_input_data, ofs_output_file,
+                                         element_size_getter,
+                                         write_element_lambda);
+}
+
+template <size_t Version = 0, class Container,
+          typename Type = typename Container::value_type>
+auto deep_read_vector_from_stream(Container &result,
+                                  std::ifstream &ifs_input_file,
+                                  auto &&vector_insert_element_function)
+    -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  return read_vector_deep_copy<Version>(result, ifs_input_file,
+                                        vector_insert_element_function);
+}
+
+template <size_t Version = 0, class Container,
+          typename Type = typename Container::value_type>
+auto deep_read_vector_from_file(Container &result, const std::string file_name,
+                                auto &&vector_insert_element_function)
+    -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  std::ifstream ifs_input_file(file_name);
+  return read_vector_deep_copy<Version>(result, ifs_input_file,
+                                        vector_insert_element_function);
+}
 
 auto basic_buffer_read(ByteVectorWithCounter &vector_byte_buffer,
                        auto *destination_to_copy_to, const size_t size_to_read)
@@ -1063,20 +1099,21 @@ template <typename Type>
   return true;
 }
 
-template <class Container, class WriteElementLambda,
+template <size_t Version = 0, class Container, class WriteElementLambda,
           typename Type = typename Container::value_type>
 auto deep_copy_vector_to_buffer(const Container &vector_input_data,
                                 auto &&element_size_getter,
                                 WriteElementLambda &&write_element_lambda)
     -> std::optional<ByteVectorWithCounter> {
-  static_assert(ContainerHasDataAndSize<Container>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
-  static_assert(PickleJarWriteLambdaRequirements<WriteElementLambda,
-                                                 ByteVectorWithCounter, Type>,
-                WRITELAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(
+      (PickleJarWriteLambdaRequirements<WriteElementLambda,
+                                        ByteVectorWithCounter, Type>),
+      WRITELAMBDAREQUIREMENTS_MSG);
   const size_t vector_byte_size = vector_input_data.size() * sizeof(Type);
   ByteVectorWithCounter output_buffer_of_bytes(vector_byte_size);
-  if (write_vector_deep_copy<ByteVectorWithCounter,
+  if (write_vector_deep_copy<Version, ByteVectorWithCounter,
                              picklejar::write_object_to_buffer>(
           vector_input_data, output_buffer_of_bytes, element_size_getter,
           write_element_lambda))
@@ -1088,24 +1125,34 @@ template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
 [[nodiscard]] auto read_object_from_buffer(
     ByteVectorWithCounter &buffer_with_input_bytes) -> std::optional<Type> {
-  static_assert(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
+  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   return std::make_optional(buffer_with_input_bytes.read<Type>());
 }
 
-template <class Container, typename Type = typename Container::value_type>
+template <size_t Version = 0, class Container,
+          typename Type = typename Container::value_type>
 auto deep_read_vector_from_buffer(Container &result,
                                   ByteVectorWithCounter &vector_byte_buffer,
                                   auto &&vector_insert_element_function)
     -> std::optional<Container> {
-  static_assert(ContainerHasDataAndSize<Container>,
-                CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
+                    CONTAINERWITHHASDATAANDSIZE_MSG);
   ByteVectorWithCounter byte_vector_with_counter(vector_byte_buffer);
-  return read_vector_deep_copy<ByteVectorWithCounter,
+  return read_vector_deep_copy<Version, ByteVectorWithCounter,
                                picklejar::read_object_from_buffer<size_t>,
                                picklejar::basic_buffer_read>(
       result, byte_vector_with_counter, vector_insert_element_function);
 }
 
 // END DEEP COPY FUNCTIONS
+
+// functions we needed after for convenience
+[[nodiscard]] auto basic_stream_write(std::ofstream &ofs_output_file,
+                                      auto *destination_to_copy_to,
+                                      const size_t size_to_read) -> bool {
+  ofs_output_file.write(reinterpret_cast<const char *>(destination_to_copy_to),
+                        std::streamsize(size_to_read));  // NOLINT
+  return ofs_output_file.good();
+}
 }  // namespace picklejar
 #endif
