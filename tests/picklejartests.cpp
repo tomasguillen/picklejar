@@ -56,14 +56,14 @@ int main() {
     expect(true == picklejar::write_vector_to_file(string_vec, "example1.data"))
         << "picklejar::write_vector_to_file(int_string...) - Write Failed";
     auto optional_read_vector = picklejar::read_vector_from_file<std::string>(
-        "example1.data", [count = 1](auto &blank_instance,
-                                     auto &valid_bytes_from_new_blank_instance,
-                                     auto &bytes_from_file) mutable {
+        "example1.data",
+        [count = 1](auto &blank_instance, auto &valid_bytes_blank_instance_copy,
+                    auto &bytes_from_file) mutable {
           picklejar::util::preserve_blank_instance_member(
-              0, sizeof(std::string), valid_bytes_from_new_blank_instance,
+              0, sizeof(std::string), valid_bytes_blank_instance_copy,
               bytes_from_file);
           picklejar::util::copy_new_bytes_to_instance(
-              valid_bytes_from_new_blank_instance, blank_instance,
+              valid_bytes_blank_instance_copy, blank_instance,
               sizeof(std::string));
           blank_instance = "prefix" + std::to_string(++count);
         });

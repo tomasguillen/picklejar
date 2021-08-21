@@ -55,11 +55,18 @@ set(CMAKE_SHARED_LINKER_FLAGS_ASAN
   
 list(APPEND EXTRA_WARNING_FLAGS
   # disable gcc warning about copying memory directly onto strings address, you may try to compile without this if you are using trivial types like ints or basic structs it should work without disabling this warning
+  
   -Wno-class-memaccess
   -Wno-unused
+  -fmax-errors=1
   #-fconcepts-ts # use this if you need to compile with c++ version less than c++ 20
 )
 
 add_executable(PickleJarExamples readme_examples.cpp)
 target_compile_features(PickleJarExamples PRIVATE cxx_std_20)
 target_compile_options(PickleJarExamples PUBLIC ${EXTRA_WARNING_FLAGS})
+
+
+add_executable(PickleJarVersioningExample versioning_example.cpp)
+target_compile_features(PickleJarVersioningExample PRIVATE cxx_std_20)
+target_compile_options(PickleJarVersioningExample PUBLIC ${EXTRA_WARNING_FLAGS})

@@ -5,6 +5,7 @@
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <span>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -263,6 +264,58 @@ concept DefaultConstructible = std::is_default_constructible_v<C>;
   "returns a tuple with the parameters to construct the object. SEE NON "     \
   "TRIVIAL EXAMPLES section in the readme file"
 
+// LAMBDA CONCEPTS
+
+template <template <typename...> class Template, typename T>
+struct is_specialization_of : std::false_type {};
+
+template <template <typename...> class Template, typename... Args>
+struct is_specialization_of<Template, Template<Args...>> : std::true_type {};
+
+template <class Type, template <typename...> class Template, typename T>
+struct is_constructible_with_elements_of_tuple : std::false_type {};
+template <class Type, template <typename...> class Template, typename... Args>
+struct is_constructible_with_elements_of_tuple<Type, Template,
+                                               Template<Args...>>
+    : std::is_constructible<Type, Args...> {};
+
+template <typename ConstructorGeneratorLambda, typename Type>
+concept PickleJarConstructorGeneratorLambdaRequirements =
+    requires(ConstructorGeneratorLambda function, Type resulting_type) {
+  requires is_specialization_of<
+      std::tuple, std::invoke_result_t<ConstructorGeneratorLambda>>::value;
+  requires is_constructible_with_elements_of_tuple<
+      Type, std::tuple,
+      std::invoke_result_t<ConstructorGeneratorLambda>>::value;
+  {function()};
+};
+
+#define CONSTRUCTORGENERATORLAMBDAREQUIREMENTS_MSG                             \
+  "PICKLEJAR_HELP: malformed 'constructor_generator_lambda' this lambda must " \
+  "take no arguments and return a tuple with parameters that will be passed "  \
+  "to construct the object"
+
+template <typename ManipulateBytesLambda, typename Type,
+          typename ByteStorageMethod = std::array<char, sizeof(Type)>>
+concept PickleJarManipulateBytesLambdaRequirements =
+    requires(ManipulateBytesLambda function, Type blank_instance,
+             ByteStorageMethod valid_bytes_blank_instance_copy,
+             ByteStorageMethod bytes_from_file) {
+  {
+    function(blank_instance, valid_bytes_blank_instance_copy, bytes_from_file)
+    } -> std::same_as<void>;
+};
+#define MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG                                  \
+  "PICKLEJAR_HELP: malformed "                                                 \
+  "'manipulate_bytes_from_file_before_writing_to_instance_lambda' this "       \
+  "lambda must take: 1) 'a reference to an instance of the type you are "      \
+  "trying to read', 2) 'a reference to a array<char, sizeof(Type)>, which "    \
+  "contains a copy "                                                           \
+  "of the first parameter bytes', 3) 'a reference to an array<char, "          \
+  "sizeof(Type)>, which "                                                      \
+  "contains the bytes read from the file for each object in the file' and no " \
+  "return type"
+
 // DEEP COPY CONCEPTS
 template <typename WriteElementLambda, typename BufferOrStreamObject,
           typename Type>
@@ -284,7 +337,7 @@ concept PickleJarElementSizeGetterRequirements =
 struct ByteVectorWithCounter;  // forward declaration just for bytebufferlambda
                                // concept
 template <typename ByteBufferLambda>
-concept PickleJarByteBufferFunctionRequirements = requires(
+concept PickleJarByteBufferLambdaRequirements = requires(
     ByteBufferLambda function, ByteVectorWithCounter byte_vector_with_counter) {
   { function(byte_vector_with_counter) } -> std::same_as<bool>;
 };
@@ -325,15 +378,6 @@ concept PickleJarVectorInsertElementLambdaRequirements =
 // END CONCEPTS
 
 // START READ_API
-
-auto basic_stream_read(std::ifstream &ifstream_input_file,
-                       auto *destination_to_copy_to, const size_t size_to_read)
-    -> bool {
-  ifstream_input_file.read(
-      reinterpret_cast<char *>(destination_to_copy_to),  // NOLINT
-      std::streamsize(size_to_read));
-  return ifstream_input_file.good();
-};
 
 // START object_stream_v1
 template <class Type,
@@ -472,28 +516,40 @@ template <class Type,
 
 // START object_stream_v2_nochecks
 template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
+          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
+          class ManipulateBytesLambda>
 auto operation_specific_read_object_from_stream(
     ManagedAlignedCopy &copy, std::ifstream &ifstream_input_file,
-    auto &&operation_modify_using_previous_bytes) -> ManagedAlignedCopy & {
-  std::array<char, sizeof(Type)> valid_bytes_from_new_blank_instance{};
-  std::memcpy(valid_bytes_from_new_blank_instance.data(),
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
+    -> ManagedAlignedCopy & {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
+  std::array<char, sizeof(Type)> valid_bytes_blank_instance_copy{};
+  std::memcpy(valid_bytes_blank_instance_copy.data(),
               copy.get_pointer_to_copy(), sizeof(Type));
   std::array<char, sizeof(Type)> bytes_from_file{};
   ifstream_input_file.read(bytes_from_file.data(), sizeof(Type));
-  operation_modify_using_previous_bytes(
-      *copy.get_pointer_to_copy(), *valid_bytes_from_new_blank_instance.data(),
-      *bytes_from_file.data());
+  manipulate_bytes_from_file_before_writing_to_instance_lambda(
+      *copy.get_pointer_to_copy(), valid_bytes_blank_instance_copy,
+      bytes_from_file);
   return copy;
 }
 // END object_stream_v2_nochecks
 
 // START object_stream_v2
 template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
-auto read_object_from_stream(std::ifstream &ifstream_input_file,
-                             auto &&operation_modify_using_previous_bytes)
+          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
+          class ManipulateBytesLambda>
+auto read_object_from_stream(
+    std::ifstream &ifstream_input_file,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
     -> std::optional<Type> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   ManagedAlignedCopy copy{};
   if (ifstream_is_invalid(ifstream_input_file)) {
@@ -501,7 +557,8 @@ auto read_object_from_stream(std::ifstream &ifstream_input_file,
   }
   auto result{
       operation_specific_read_object_from_stream<Type, ManagedAlignedCopy>(
-          copy, ifstream_input_file, operation_modify_using_previous_bytes)
+          copy, ifstream_input_file,
+          manipulate_bytes_from_file_before_writing_to_instance_lambda)
           .get_pointer_to_copy()};
   if (ifstream_is_invalid(ifstream_input_file)) {
     return {};
@@ -512,22 +569,34 @@ auto read_object_from_stream(std::ifstream &ifstream_input_file,
 
 // START object_file_v2_nochecks uses object_stream_v2
 template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
+          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
+          class ManipulateBytesLambda>
 auto operation_specific_read_object_from_file(
     ManagedAlignedCopy &copy, const std::string file_name,
-    auto &&operation_modify_using_previous_bytes) -> ManagedAlignedCopy & {
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
+    -> ManagedAlignedCopy & {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   std::ifstream ifstream_input_file(file_name, std::ios::in | std::ios::binary);
   return operation_specific_read_object_from_stream<Type, ManagedAlignedCopy>(
-      copy, ifstream_input_file, operation_modify_using_previous_bytes);
+      copy, ifstream_input_file,
+      manipulate_bytes_from_file_before_writing_to_instance_lambda);
 }
 // END object_file_v2_nochecks uses object_stream_v2
 // START object_file_v2 uses object_stream_v2
 template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
-auto read_object_from_file(ManagedAlignedCopy &copy,
-                           const std::string file_name,
-                           auto &&operation_modify_using_previous_bytes)
+          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
+          class ManipulateBytesLambda>
+auto read_object_from_file(
+    ManagedAlignedCopy &copy, const std::string file_name,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
     -> std::optional<ManagedAlignedCopy *> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   std::ifstream ifstream_input_file(file_name, std::ios::in | std::ios::binary);
   if (ifstream_is_invalid(ifstream_input_file)) {
@@ -535,7 +604,8 @@ auto read_object_from_file(ManagedAlignedCopy &copy,
   }
   auto result{
       &operation_specific_read_object_from_stream<Type, ManagedAlignedCopy>(
-          copy, ifstream_input_file, operation_modify_using_previous_bytes)};
+          copy, ifstream_input_file,
+          manipulate_bytes_from_file_before_writing_to_instance_lambda)};
   if (ifstream_close_and_check_is_invalid(ifstream_input_file)) {
     return {};
   }
@@ -544,35 +614,48 @@ auto read_object_from_file(ManagedAlignedCopy &copy,
 // END object_file_v2 uses object_stream_v2
 // START object_file_v2_copy uses object_file_v2
 template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
-auto read_object_from_file(const std::string file_name,
-                           auto &&operation_modify_using_previous_bytes)
+          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
+          class ManipulateBytesLambda>
+auto read_object_from_file(
+    const std::string file_name,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
     -> std::optional<Type> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   ManagedAlignedCopy copy{};
   auto lower_level_return{read_object_from_file<Type, ManagedAlignedCopy>(
-      copy, file_name, operation_modify_using_previous_bytes)};
+      copy, file_name,
+      manipulate_bytes_from_file_before_writing_to_instance_lambda)};
   if (lower_level_return)
     return std::make_optional(
         *(lower_level_return.value())->get_pointer_to_copy());
   return {};
 }
 // END object_file_v2_copy uses object_file_v2
+using BufferContainer = std::span<char>;
 
 // START object_buffer_v2
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class BufferContainer>
+          class ManipulateBytesLambda>
 auto operation_specific_read_object_from_buffer(
-    ManagedAlignedCopy &copy, BufferContainer &buffer_with_input_bytes,
-    size_t &bytes_read_so_far, auto &&operation_modify_using_previous_bytes)
+    ManagedAlignedCopy &copy, BufferContainer buffer_with_input_bytes,
+    size_t &bytes_read_so_far,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
     -> ManagedAlignedCopy & {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
                     CONTAINERWITHHASDATAANDSIZE_MSG);
 
-  std::array<char, sizeof(Type)> valid_bytes_from_new_blank_instance{};
-  std::memcpy(valid_bytes_from_new_blank_instance.data(),
+  std::array<char, sizeof(Type)> valid_bytes_blank_instance_copy{};
+  std::memcpy(valid_bytes_blank_instance_copy.data(),
               copy.get_pointer_to_copy(), sizeof(Type));
   std::array<char, sizeof(Type)>
       bytes_from_file{};  // TODO(tom): this may be unnecessary we could just
@@ -580,27 +663,30 @@ auto operation_specific_read_object_from_buffer(
   std::memcpy(bytes_from_file.data(),
               buffer_with_input_bytes.data() + bytes_read_so_far, sizeof(Type));
   bytes_read_so_far += sizeof(Type);
-  operation_modify_using_previous_bytes(
-      *copy.get_pointer_to_copy(), *valid_bytes_from_new_blank_instance.data(),
-      *bytes_from_file.data());
+  manipulate_bytes_from_file_before_writing_to_instance_lambda(
+      *copy.get_pointer_to_copy(), valid_bytes_blank_instance_copy,
+      bytes_from_file);
   return copy;
 }
 // END object_buffer_v2
 // START object_buffer_v2_copy uses object_buffer_v2
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class BufferContainer>
-auto read_object_from_buffer(BufferContainer &buffer_with_input_bytes,
-                             size_t &bytes_read_so_far,
-                             auto &&operation_modify_using_previous_bytes)
-    -> Type {
+          class ManipulateBytesLambda>
+auto read_object_from_buffer(
+    BufferContainer buffer_with_input_bytes, size_t &bytes_read_so_far,
+    ManipulateBytesLambda &&
+        manipulate_bytes_from_file_before_writing_to_instance_lambda) -> Type {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
                     CONTAINERWITHHASDATAANDSIZE_MSG);
   ManagedAlignedCopy copy{};
   return *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
                copy, buffer_with_input_bytes, bytes_read_so_far,
-               operation_modify_using_previous_bytes))
+               manipulate_bytes_from_file_before_writing_to_instance_lambda))
               .get_pointer_to_copy();
 }
 // END object_buffer_v2_copy uses object_buffer_v2
@@ -609,18 +695,28 @@ auto read_object_from_buffer(BufferContainer &buffer_with_input_bytes,
 // this returns a copy, object_stream_v2 be more efficient because it takes
 // and returns a reference therefore only generating a move
 template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
+          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
+          class ConstructorGeneratorLambda, class ManipulateBytesLambda>
 [[nodiscard]] auto read_object_from_stream(
     std::ifstream &ifstream_input_file,
-    auto &&operation_modify_using_previous_bytes, auto &&constructor_generator)
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
+    ConstructorGeneratorLambda &&constructor_generator_lambda)
     -> std::optional<Type> {
-  ManagedAlignedCopy copy{constructor_generator()};
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT((PickleJarConstructorGeneratorLambdaRequirements<
+                        ConstructorGeneratorLambda, Type>),
+                    CONSTRUCTORGENERATORLAMBDAREQUIREMENTS_MSG);
+  ManagedAlignedCopy copy{constructor_generator_lambda()};
   if (ifstream_is_invalid(ifstream_input_file)) {
     return {};
   }
   auto result{std::make_optional(
       *(operation_specific_read_object_from_stream<Type, ManagedAlignedCopy>(
-            copy, ifstream_input_file, operation_modify_using_previous_bytes))
+            copy, ifstream_input_file,
+            manipulate_bytes_from_file_before_writing_to_instance_lambda))
            .get_pointer_to_copy())};
   if (ifstream_is_invalid(ifstream_input_file)) {
     return {};
@@ -632,13 +728,24 @@ template <class Type,
 // this returns a copy, object_stream_v2 be more efficient because it takes
 // and returns a reference therefore only generating a move
 template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
+          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
+          class ConstructorGeneratorLambda, class ManipulateBytesLambda>
 [[nodiscard]] auto read_object_from_file(
-    const std::string file_name, auto &&operation_modify_using_previous_bytes,
-    auto &&constructor_generator) -> std::optional<Type> {
-  ManagedAlignedCopy copy{constructor_generator()};
+    const std::string file_name,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
+    ConstructorGeneratorLambda &&constructor_generator_lambda)
+    -> std::optional<Type> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT((PickleJarConstructorGeneratorLambdaRequirements<
+                        ConstructorGeneratorLambda, Type>),
+                    CONSTRUCTORGENERATORLAMBDAREQUIREMENTS_MSG);
+  ManagedAlignedCopy copy{constructor_generator_lambda()};
   auto lower_level_return{read_object_from_file<Type, ManagedAlignedCopy>(
-      copy, file_name, operation_modify_using_previous_bytes)};
+      copy, file_name,
+      manipulate_bytes_from_file_before_writing_to_instance_lambda)};
   if (lower_level_return)
     return std::make_optional(
         *(lower_level_return.value())->get_pointer_to_copy());
@@ -650,35 +757,45 @@ template <class Type,
 // and returns a reference therefore only generating a move
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class BufferContainer>
+          class ConstructorGeneratorLambda, class ManipulateBytesLambda>
 [[nodiscard]] auto read_object_from_buffer(
-    BufferContainer &buffer_with_input_bytes, size_t &bytes_read_so_far,
-    auto &&operation_modify_using_previous_bytes, auto &&constructor_generator)
-    -> Type {
+    BufferContainer buffer_with_input_bytes, size_t &bytes_read_so_far,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
+    ConstructorGeneratorLambda &&constructor_generator_lambda) -> Type {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT((PickleJarConstructorGeneratorLambdaRequirements<
+                        ConstructorGeneratorLambda, Type>),
+                    CONSTRUCTORGENERATORLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
                     CONTAINERWITHHASDATAANDSIZE_MSG);
-  ManagedAlignedCopy copy{constructor_generator()};
+  ManagedAlignedCopy copy{constructor_generator_lambda()};
   return *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
                copy, buffer_with_input_bytes, bytes_read_so_far,
-               operation_modify_using_previous_bytes))
+               manipulate_bytes_from_file_before_writing_to_instance_lambda))
               .get_pointer_to_copy();
 }
 // END object_buffer_v3 uses object_buffer_v2
 namespace util {
-void preserve_blank_instance_member(size_t blank_instance_member_offset,
-                                    size_t blank_instance_member_size,
-                                    auto &valid_bytes_from_new_blank_instance,
-                                    auto &bytes_from_file) {
+template <size_t N>
+void preserve_blank_instance_member(
+    size_t blank_instance_member_offset, size_t blank_instance_member_size,
+    std::array<char, N> &valid_bytes_blank_instance_copy,
+    std::array<char, N> &bytes_from_file) {
   // copy valid std::string bytes to the bytes we read from the file
   std::memcpy(
-      &bytes_from_file + blank_instance_member_offset,
-      &valid_bytes_from_new_blank_instance + blank_instance_member_offset,
+      bytes_from_file.data() + blank_instance_member_offset,
+      valid_bytes_blank_instance_copy.data() + blank_instance_member_offset,
       blank_instance_member_size);
 }
-void copy_new_bytes_to_instance(auto &bytes_to_copy_to_instance,
-                                auto &blank_instance, size_t size_of_object) {
+template <size_t N, class Type>
+void copy_new_bytes_to_instance(std::array<char, N> &bytes_to_copy_to_instance,
+                                Type &blank_instance, size_t size_of_object) {
   // copy our read bytes to our blank copy
-  std::memcpy(&blank_instance, &bytes_to_copy_to_instance, size_of_object);
+  std::memcpy(&blank_instance, bytes_to_copy_to_instance.data(),
+              size_of_object);
 }
 }  // namespace util
 
@@ -687,14 +804,13 @@ template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
           class BufferContainer>
 [[nodiscard]] auto operation_specific_read_object_from_buffer(
-    ManagedAlignedCopy &copy, BufferContainer &buffer_with_input_bytes,
+    ManagedAlignedCopy &copy, BufferContainer buffer_with_input_bytes,
     size_t &bytes_read_so_far) -> ManagedAlignedCopy & {
   PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
                     CONTAINERWITHHASDATAANDSIZE_MSG);
-  util::copy_new_bytes_to_instance(
-      *(buffer_with_input_bytes.data() + bytes_read_so_far),
-      *copy.get_pointer_to_copy(), sizeof(Type));
+  std::memcpy(copy.get_pointer_to_copy(),
+              buffer_with_input_bytes.data() + bytes_read_so_far, sizeof(Type));
   bytes_read_so_far += sizeof(Type);
   return copy;
 }
@@ -704,7 +820,7 @@ template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
           class BufferContainer>
 [[nodiscard]] auto read_object_from_buffer(
-    BufferContainer &buffer_with_input_bytes, size_t &bytes_read_so_far)
+    BufferContainer buffer_with_input_bytes, size_t &bytes_read_so_far)
     -> Type {
   PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
@@ -720,9 +836,9 @@ template <class Type,
 // BUFFER VERSION taken from OPERATION VERSION
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class BufferContainer, class Container>
+          class Container>
 [[nodiscard]] constexpr auto read_vector_from_buffer(
-    Container &vector_input_data, BufferContainer &buffer_with_input_bytes)
+    Container &vector_input_data, BufferContainer buffer_with_input_bytes)
     -> std::optional<Container> {
   PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   PICKLEJAR_CONCEPT((ContainerHasPushBack<Container, Type>),
@@ -738,9 +854,7 @@ template <class Type,
   }
   size_t bytes_read_so_far = 0;
   while (bytes_read_so_far < file_size) {
-    if (bytes_read_so_far + sizeof(Type) >
-        static_cast<unsigned long>(file_size))
-      break;
+    if (bytes_read_so_far + sizeof(Type) > file_size) break;
     ManagedAlignedCopy copy{};
     vector_input_data.push_back(std::move(
         *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
@@ -757,11 +871,20 @@ template <class Type,
 // BUFFER VERSION taken from OPERATION VERSION
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class BufferContainer, class Container>
+          class Container, class ConstructorGeneratorLambda,
+          class ManipulateBytesLambda>
 [[nodiscard]] constexpr auto read_vector_from_buffer(
-    Container &vector_input_data, BufferContainer &buffer_with_input_bytes,
-    auto &&operation_modify_using_previous_bytes, auto &&constructor_generator)
+    Container &vector_input_data, BufferContainer buffer_with_input_bytes,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
+    ConstructorGeneratorLambda &&constructor_generator_lambda)
     -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT((PickleJarConstructorGeneratorLambdaRequirements<
+                        ConstructorGeneratorLambda, Type>),
+                    CONSTRUCTORGENERATORLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
                     CONTAINERWITHHASDATAANDSIZE_MSG);
   auto file_size = buffer_with_input_bytes.size();
@@ -775,17 +898,15 @@ template <class Type,
   while (bytes_read_so_far < file_size) {
     // std::puts(
     //    ("bytes_read_so_far: " + std::to_string(bytes_read_so_far)).c_str());
-    if (bytes_read_so_far + sizeof(Type) >
-        static_cast<unsigned long>(file_size))
-      break;
+    if (bytes_read_so_far + sizeof(Type) > file_size) break;
     // START OPERATION VERSION
-    ManagedAlignedCopy copy{constructor_generator()};
+    ManagedAlignedCopy copy{constructor_generator_lambda()};
 
     // END OPERATION VERSION
     vector_input_data.push_back(std::move(
         *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
               copy, buffer_with_input_bytes, bytes_read_so_far,
-              operation_modify_using_previous_bytes))
+              manipulate_bytes_from_file_before_writing_to_instance_lambda))
              .get_pointer_to_copy()));
   }
   if (vector_input_data.size() > initial_vector_size) {
@@ -798,11 +919,20 @@ template <class Type,
 // OPERATION VERSION
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class Container>
+          class Container, class ConstructorGeneratorLambda,
+          class ManipulateBytesLambda>
 [[nodiscard]] auto read_vector_from_stream(
     Container &vector_input_data, std::ifstream &ifstream_input_file,
-    auto &&operation_modify_using_previous_bytes, auto &&constructor_generator)
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
+    ConstructorGeneratorLambda &&constructor_generator_lambda)
     -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT((PickleJarConstructorGeneratorLambdaRequirements<
+                        ConstructorGeneratorLambda, Type>),
+                    CONSTRUCTORGENERATORLAMBDAREQUIREMENTS_MSG);
   if (ifstream_is_invalid(
           ifstream_input_file)) {  // important to check this before
                                    // ifstream_filesize because it clears state
@@ -823,10 +953,11 @@ template <class Type,
     if (ifstream_is_sizeof_type_larger_than_remaining_readbytes<Type>(
             ifstream_input_file, size_t(file_size)))
       break;
-    ManagedAlignedCopy copy{constructor_generator()};
+    ManagedAlignedCopy copy{constructor_generator_lambda()};
     vector_input_data.push_back(std::move(
         *(operation_specific_read_object_from_stream<Type, ManagedAlignedCopy>(
-              copy, ifstream_input_file, operation_modify_using_previous_bytes))
+              copy, ifstream_input_file,
+              manipulate_bytes_from_file_before_writing_to_instance_lambda))
              .get_pointer_to_copy()));
   }
   if (vector_input_data.size() > initial_vector_size) {
@@ -840,38 +971,55 @@ constexpr auto return_empty_tuple = []() { return std::tuple(); };
 
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class Container>
+          class Container, class ManipulateBytesLambda>
 [[nodiscard]] auto read_vector_from_stream(
     Container &vector_input_data, std::ifstream &ifstream_input_file,
-    auto &&operation_modify_using_previous_bytes) -> std::optional<Container> {
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
+    -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   return read_vector_from_stream<Type, ManagedAlignedCopy>(
       vector_input_data, ifstream_input_file,
-      operation_modify_using_previous_bytes, return_empty_tuple);
+      manipulate_bytes_from_file_before_writing_to_instance_lambda,
+      return_empty_tuple);
 }
 // END stream_v2 uses stream_v3
 // START buffer_v2 uses buffer_v3
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class Container, class BufferContainer>
+          class Container, class ManipulateBytesLambda>
 [[nodiscard]] constexpr auto read_vector_from_buffer(
-    Container &vector_input_data, BufferContainer &buffer_with_input_bytes,
-    auto &&operation_modify_using_previous_bytes) -> std::optional<Container> {
+    Container &vector_input_data, BufferContainer buffer_with_input_bytes,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
+    -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<BufferContainer>,
                     CONTAINERWITHHASDATAANDSIZE_MSG);
   return read_vector_from_buffer<Type, ManagedAlignedCopy>(
       vector_input_data, buffer_with_input_bytes,
-      operation_modify_using_previous_bytes, return_empty_tuple);
+      manipulate_bytes_from_file_before_writing_to_instance_lambda,
+      return_empty_tuple);
 }
 // END buffer_v2 uses buffer_v3
 // START file_v2 uses stream_v2
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class Container = std::vector<Type>>
+          class Container = std::vector<Type>, class ManipulateBytesLambda>
 [[nodiscard]] auto read_vector_from_file(
-    const std::string file_name, auto &&operation_modify_using_previous_bytes)
+    const std::string file_name,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
     -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   Container vector_input_data;
 
@@ -881,7 +1029,7 @@ template <class Type,
   }
   auto result{read_vector_from_stream<Type, ManagedAlignedCopy>(
       vector_input_data, ifstream_input_file,
-      operation_modify_using_previous_bytes)};
+      manipulate_bytes_from_file_before_writing_to_instance_lambda)};
   if (ifstream_close_and_check_is_invalid(ifstream_input_file)) {
     return {};
   }
@@ -891,10 +1039,20 @@ template <class Type,
 // START file_v3 uses stream_v3
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class Container = std::vector<Type>>
+          class Container = std::vector<Type>, class ConstructorGeneratorLambda,
+          class ManipulateBytesLambda>
 [[nodiscard]] auto read_vector_from_file(
-    const std::string file_name, auto &&operation_modify_using_previous_bytes,
-    auto &&constructor_generator) -> std::optional<Container> {
+    const std::string file_name,
+    ManipulateBytesLambda
+        &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
+    ConstructorGeneratorLambda &&constructor_generator_lambda)
+    -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
+      MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT((PickleJarConstructorGeneratorLambdaRequirements<
+                        ConstructorGeneratorLambda, Type>),
+                    CONSTRUCTORGENERATORLAMBDAREQUIREMENTS_MSG);
   Container vector_input_data;
   std::ifstream ifstream_input_file(file_name, std::ios::in | std::ios::binary);
   if (ifstream_is_invalid(ifstream_input_file)) {
@@ -902,7 +1060,8 @@ template <class Type,
   }
   auto result{read_vector_from_stream<Type, ManagedAlignedCopy>(
       vector_input_data, ifstream_input_file,
-      operation_modify_using_previous_bytes, constructor_generator)};
+      manipulate_bytes_from_file_before_writing_to_instance_lambda,
+      constructor_generator_lambda)};
   if (ifstream_close_and_check_is_invalid(ifstream_input_file)) {
     return {};
   }
@@ -912,7 +1071,7 @@ template <class Type,
 // END READ_API
 
 // DEEP COPY FUNCTIONS
-template <class BufferOrStreamObject,
+template <size_t Version = 0, class BufferOrStreamObject,
           bool WriteSizeFunction(const size_t &, BufferOrStreamObject &) =
               picklejar::write_object_to_stream<size_t>,
           class Type, class WriteElementLambda>
@@ -923,6 +1082,9 @@ auto write_object_deep_copy(const Type &object, const size_t object_size,
       (PickleJarWriteLambdaRequirements<WriteElementLambda,
                                         BufferOrStreamObject, Type>),
       WRITELAMBDAREQUIREMENTS_MSG);
+  if constexpr (Version > 0) {
+    if (!WriteSizeFunction(Version, buffer_or_stream_object)) return false;
+  }
   if (WriteSizeFunction(object_size, buffer_or_stream_object)) {
     return write_element_lambda(buffer_or_stream_object, object,
                                 object_size);  // NOLINT
@@ -954,9 +1116,9 @@ auto write_vector_deep_copy(
     if (!WriteSizeFunction(Version, buffer_or_stream_object)) return false;
   }
   if (WriteSizeFunction(vector_input_data.size(), buffer_or_stream_object)) {
-    for (auto &object : vector_input_data) {
+    for (const Type &object : vector_input_data) {
       // for each element we write the size of the object first
-      if (!write_object_deep_copy<BufferOrStreamObject, WriteSizeFunction>(
+      if (!write_object_deep_copy<0, BufferOrStreamObject, WriteSizeFunction>(
               object, element_size_getter_lambda(object),
               buffer_or_stream_object, write_element_lambda))
         return false;
@@ -979,6 +1141,15 @@ struct ByteVectorWithCounter {
     return byte_counter ? size() - byte_counter.value() : 0;
   }
 
+  auto get_remaining_bytes_as_vector() -> std::vector<char> {
+    return {std::begin(byte_data) + int(byte_counter.value()),
+            std::end(byte_data)};
+  }
+
+  auto get_remaining_bytes_as_span() -> std::span<char> {
+    return {byte_data.data() + byte_counter.value(), size_remaining()};
+  }
+
   void set_counter(size_t new_counter) { byte_counter = new_counter; }
 
   [[nodiscard]] auto would_it_be_full_if_so_invalidate(size_t size_to_advance)
@@ -988,6 +1159,12 @@ struct ByteVectorWithCounter {
       return true;
     }
     return false;
+  }
+
+  [[nodiscard]] auto advance_counter(size_t size_to_advance) -> bool {
+    if (would_it_be_full_if_so_invalidate(size_to_advance)) return false;
+    byte_counter.value() += size_to_advance;
+    return true;
   }
 
   auto write(const char *object_ptr, size_t object_size) -> bool {
@@ -1013,7 +1190,9 @@ struct ByteVectorWithCounter {
     if (would_it_be_full_if_so_invalidate(sizeof(Type))) return {};
     return read_object_from_buffer<Type>(byte_data, byte_counter.value());
   }
-  auto read(auto *destination_to_copy_to, const size_t size_to_read) -> bool {
+  template <class PointerType>
+  auto read(PointerType *destination_to_copy_to, const size_t size_to_read)
+      -> bool {
     if (would_it_be_full_if_so_invalidate(size_to_read)) return false;
     std::memcpy(reinterpret_cast<char *>(destination_to_copy_to),
                 byte_data.data() + byte_counter.value(),  // NOLINT
@@ -1029,9 +1208,33 @@ struct ByteVectorWithCounter {
   friend auto end(ByteVectorWithCounter &byte_vector_with_counter) {
     return byte_vector_with_counter.end();
   }
+
+  auto current_iterator() {
+    if (!byte_counter) return end();
+    return begin() + long(byte_counter.value());
+  }
+
+  // return current_iterator + offset
+  auto offset_iterator(size_t size_to_advance) {
+    if (would_it_be_full_if_so_invalidate(size_to_advance)) return end();
+    return current_iterator() + long(size_to_advance);
+  }
+  [[nodiscard]] auto invalid() const -> bool {
+    return !byte_counter.has_value();
+  }
 };
 
-template <class BufferOrStreamObject,
+template <class PointerType>
+auto basic_stream_read(std::ifstream &ifstream_input_file,
+                       PointerType *destination_to_copy_to,
+                       const size_t size_to_read) -> bool {
+  ifstream_input_file.read(
+      reinterpret_cast<char *>(destination_to_copy_to),  // NOLINT
+      std::streamsize(size_to_read));
+  return ifstream_input_file.good();
+};
+
+template <size_t Version = 0, class BufferOrStreamObject,
           std::optional<size_t> ReadSizeFunction(BufferOrStreamObject &) =
               picklejar::read_object_from_stream<size_t>,
           bool ReadBufferOrStreamFunction(BufferOrStreamObject &, char *,
@@ -1039,12 +1242,18 @@ template <class BufferOrStreamObject,
               picklejar::basic_stream_read,
           class ByteBufferLambda>
 auto read_object_deep_copy(BufferOrStreamObject &buffer_or_stream_object,
-                           ByteBufferLambda &&byte_buffer_function) -> bool {
-  if (auto optional_string_size = ReadSizeFunction(buffer_or_stream_object)) {
-    PICKLEJAR_CONCEPT(
-        (PickleJarByteBufferFunctionRequirements<ByteBufferLambda>),
-        BYTEBUFFERLAMBDAREQUIREMENTS_MSG);
+                           ByteBufferLambda &&byte_buffer_lambda) -> bool {
+  PICKLEJAR_CONCEPT((PickleJarByteBufferLambdaRequirements<ByteBufferLambda>),
+                    BYTEBUFFERLAMBDAREQUIREMENTS_MSG);
 
+  if constexpr (Version > 0) {
+    if (auto optional_version = ReadSizeFunction(buffer_or_stream_object);
+        !optional_version or optional_version.value() != Version) {
+      return false;
+    }
+  }
+
+  if (auto optional_string_size = ReadSizeFunction(buffer_or_stream_object)) {
     // if we got the size of our object in optional_string_size.value()
     // we create a vector of char and we read the stream into it
     ByteVectorWithCounter byte_buffer(optional_string_size.value());
@@ -1052,7 +1261,7 @@ auto read_object_deep_copy(BufferOrStreamObject &buffer_or_stream_object,
                                    byte_buffer.byte_data.data(),
                                    optional_string_size.value())) {
       // if read is sucessful we create the object using it's byte_buffer bytes
-      return byte_buffer_function(byte_buffer);
+      return byte_buffer_lambda(byte_buffer);
     }
   }
   return false;
@@ -1083,16 +1292,16 @@ auto read_vector_deep_copy(
   if (auto optional_size = ReadSizeFunction(buffer_or_stream_object)) {
     result.reserve(optional_size.value());
     for (size_t i{0}; i < optional_size.value(); ++i) {
-      if (!read_object_deep_copy<BufferOrStreamObject, ReadSizeFunction,
+      if (!read_object_deep_copy<0, BufferOrStreamObject, ReadSizeFunction,
                                  ReadBufferOrStreamFunction>(
-              buffer_or_stream_object, [&](auto &byte_buffer) {
+              buffer_or_stream_object, [&](ByteVectorWithCounter &byte_buffer) {
                 return vector_insert_element_lambda(result, byte_buffer);
               }))
         return {};
     }
   }
   if (result.size() > result_initial_size) {
-    return std::make_optional(result);
+    return std::make_optional(std::move(result));
   }
   return {};
 }
@@ -1117,6 +1326,22 @@ auto deep_copy_vector_to_stream(
                                          write_element_lambda);
 }
 
+template <size_t Version = 0, class BufferOrStreamObject,
+          bool WriteSizeFunction(const size_t &, BufferOrStreamObject &) =
+              picklejar::write_object_to_stream<size_t>,
+          class Type, class WriteElementLambda>
+auto deep_copy_object_to_stream(const Type &object, const size_t object_size,
+                                BufferOrStreamObject &buffer_or_stream_object,
+                                WriteElementLambda &&write_element_lambda)
+    -> bool {
+  PICKLEJAR_CONCEPT(
+      (PickleJarWriteLambdaRequirements<WriteElementLambda,
+                                        BufferOrStreamObject, Type>),
+      WRITELAMBDAREQUIREMENTS_MSG);
+  return write_object_deep_copy<Version>(
+      object, object_size, buffer_or_stream_object, write_element_lambda);
+}
+
 template <size_t Version = 0, class Container, class WriteElementLambda,
           class ElementSizeGetterLambda,
           typename Type = typename Container::value_type>
@@ -1138,33 +1363,92 @@ auto deep_copy_vector_to_file(
                                          write_element_lambda);
 }
 
+template <size_t Version = 0, class BufferOrStreamObject,
+          bool WriteSizeFunction(const size_t &, BufferOrStreamObject &) =
+              picklejar::write_object_to_stream<size_t>,
+          class Type, class WriteElementLambda>
+auto deep_copy_object_to_file(const Type &object, const size_t object_size,
+                              const std::string file_name,
+                              WriteElementLambda &&write_element_lambda)
+    -> bool {
+  PICKLEJAR_CONCEPT(
+      (PickleJarWriteLambdaRequirements<WriteElementLambda,
+                                        BufferOrStreamObject, Type>),
+      WRITELAMBDAREQUIREMENTS_MSG);
+  std::ofstream ofs_output_file(file_name);
+  return write_object_deep_copy<Version>(object, object_size, ofs_output_file,
+                                         write_element_lambda);
+}
+
 template <size_t Version = 0, class Container,
-          typename Type = typename Container::value_type>
-auto deep_read_vector_from_stream(Container &result,
-                                  std::ifstream &ifs_input_file,
-                                  auto &&vector_insert_element_lambda)
+          typename Type = typename Container::value_type,
+          class VectorInsertElementLambda>
+auto deep_read_vector_from_stream(
+    Container &result, std::ifstream &ifs_input_file,
+    VectorInsertElementLambda &&vector_insert_element_lambda)
     -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
+                                                      Container>),
+      VECTORINSERTELEMENTLAMBDAREQUIREMENTS_MSG);
+
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
                     CONTAINERWITHHASDATAANDSIZE_MSG);
   return read_vector_deep_copy<Version>(result, ifs_input_file,
                                         vector_insert_element_lambda);
 }
 
+template <size_t Version = 0, class BufferOrStreamObject,
+          std::optional<size_t> ReadSizeFunction(BufferOrStreamObject &) =
+              picklejar::read_object_from_stream<size_t>,
+          bool ReadBufferOrStreamFunction(BufferOrStreamObject &, char *,
+                                          const size_t) =
+              picklejar::basic_stream_read,
+          class ByteBufferLambda>
+auto deep_read_object_to_stream(BufferOrStreamObject &buffer_or_stream_object,
+                                ByteBufferLambda &&byte_buffer_lambda) -> bool {
+  PICKLEJAR_CONCEPT((PickleJarByteBufferLambdaRequirements<ByteBufferLambda>),
+                    BYTEBUFFERLAMBDAREQUIREMENTS_MSG);
+  return read_object_deep_copy<Version>(buffer_or_stream_object,
+                                        byte_buffer_lambda);
+}
+
 template <size_t Version = 0, class Container,
-          typename Type = typename Container::value_type>
-auto deep_read_vector_from_file(Container &result, const std::string file_name,
-                                auto &&vector_insert_element_lambda)
+          typename Type = typename Container::value_type,
+          class VectorInsertElementLambda>
+auto deep_read_vector_from_file(
+    Container &result, const std::string file_name,
+    VectorInsertElementLambda &&vector_insert_element_lambda)
     -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
+                                                      Container>),
+      VECTORINSERTELEMENTLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
                     CONTAINERWITHHASDATAANDSIZE_MSG);
   std::ifstream ifs_input_file(file_name);
   return read_vector_deep_copy<Version>(result, ifs_input_file,
                                         vector_insert_element_lambda);
 }
+template <size_t Version = 0, class BufferOrStreamObject,
+          std::optional<size_t> ReadSizeFunction(BufferOrStreamObject &) =
+              picklejar::read_object_from_stream<size_t>,
+          bool ReadBufferOrStreamFunction(BufferOrStreamObject &, char *,
+                                          const size_t) =
+              picklejar::basic_stream_read,
+          class ByteBufferLambda>
+auto deep_read_object_to_file(const std::string file_name,
+                              ByteBufferLambda &&byte_buffer_lambda) -> bool {
+  PICKLEJAR_CONCEPT((PickleJarByteBufferLambdaRequirements<ByteBufferLambda>),
+                    BYTEBUFFERLAMBDAREQUIREMENTS_MSG);
+  std::ifstream ifs_input_file(file_name);
+  return read_object_deep_copy<Version>(ifs_input_file, byte_buffer_lambda);
+}
 
+template <class PointerType>
 auto basic_buffer_read(ByteVectorWithCounter &vector_byte_buffer,
-                       auto *destination_to_copy_to, const size_t size_to_read)
-    -> bool {
+                       PointerType *destination_to_copy_to,
+                       const size_t size_to_read) -> bool {
   return vector_byte_buffer.read(destination_to_copy_to, size_to_read);
 };
 
@@ -1203,6 +1487,27 @@ auto deep_copy_vector_to_buffer(
   return {};
 }
 
+template <size_t Version = 0, class BufferOrStreamObject,
+          bool WriteSizeFunction(const size_t &, BufferOrStreamObject &) =
+              picklejar::write_object_to_stream<size_t>,
+          class Type, class WriteElementLambda>
+auto deep_copy_object_to_buffer(const Type &object, const size_t object_size,
+                                WriteElementLambda &&write_element_lambda)
+    -> std::optional<ByteVectorWithCounter> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarWriteLambdaRequirements<WriteElementLambda,
+                                        BufferOrStreamObject, Type>),
+      WRITELAMBDAREQUIREMENTS_MSG);
+
+  constexpr size_t vector_byte_size = sizeof(Type);
+  ByteVectorWithCounter output_buffer_of_bytes(vector_byte_size);
+  if (write_object_deep_copy<Version, ByteVectorWithCounter,
+                             picklejar::write_object_to_buffer>(
+          object, object_size, output_buffer_of_bytes, write_element_lambda))
+    return output_buffer_of_bytes;
+  return {};
+}
+
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
 [[nodiscard]] auto read_object_from_buffer(
@@ -1212,11 +1517,16 @@ template <class Type,
 }
 
 template <size_t Version = 0, class Container,
-          typename Type = typename Container::value_type>
-auto deep_read_vector_from_buffer(Container &result,
-                                  ByteVectorWithCounter &vector_byte_buffer,
-                                  auto &&vector_insert_element_lambda)
+          typename Type = typename Container::value_type,
+          class VectorInsertElementLambda>
+auto deep_read_vector_from_buffer(
+    Container &result, ByteVectorWithCounter &vector_byte_buffer,
+    VectorInsertElementLambda &&vector_insert_element_lambda)
     -> std::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
+                                                      Container>),
+      VECTORINSERTELEMENTLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
                     CONTAINERWITHHASDATAANDSIZE_MSG);
   ByteVectorWithCounter byte_vector_with_counter(vector_byte_buffer);
@@ -1226,15 +1536,47 @@ auto deep_read_vector_from_buffer(Container &result,
       result, byte_vector_with_counter, vector_insert_element_lambda);
 }
 
+template <size_t Version = 0, class BufferOrStreamObject,
+          std::optional<size_t> ReadSizeFunction(BufferOrStreamObject &) =
+              picklejar::read_object_from_stream<size_t>,
+          bool ReadBufferOrStreamFunction(BufferOrStreamObject &, char *,
+                                          const size_t) =
+              picklejar::basic_stream_read,
+          class ByteBufferLambda>
+auto deep_read_object_to_buffer(BufferOrStreamObject &buffer_or_stream_object,
+                                ByteBufferLambda &&byte_buffer_lambda) -> bool {
+  PICKLEJAR_CONCEPT((PickleJarByteBufferLambdaRequirements<ByteBufferLambda>),
+                    BYTEBUFFERLAMBDAREQUIREMENTS_MSG);
+  return read_object_deep_copy<Version, ByteVectorWithCounter,
+                               picklejar::read_object_from_buffer<size_t>,
+                               picklejar::basic_buffer_read>(
+      buffer_or_stream_object, byte_buffer_lambda);
+}
+
 // END DEEP COPY FUNCTIONS
 
 // functions we needed after for convenience
+template <class PointerType>
 [[nodiscard]] auto basic_stream_write(std::ofstream &ofs_output_file,
-                                      auto *destination_to_copy_to,
+                                      PointerType *destination_to_copy_to,
                                       const size_t size_to_read) -> bool {
   ofs_output_file.write(reinterpret_cast<const char *>(destination_to_copy_to),
                         std::streamsize(size_to_read));  // NOLINT
   return ofs_output_file.good();
+}
+
+inline auto read_version_from_stream(std::ifstream &ifstream_input_file)
+    -> std::optional<size_t> {
+  return picklejar::read_object_from_stream<size_t>(ifstream_input_file);
+}
+inline auto read_version_from_file(const std::string file_name)
+    -> std::optional<size_t> {
+  std::ifstream ifstream_input_file(file_name);
+  return picklejar::read_object_from_stream<size_t>(ifstream_input_file);
+}
+inline auto read_version_from_buffer(
+    ByteVectorWithCounter &byte_vector_with_counter) -> std::optional<size_t> {
+  return picklejar::read_object_from_buffer<size_t>(byte_vector_with_counter);
 }
 
 }  // namespace picklejar
