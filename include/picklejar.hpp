@@ -1,6 +1,7 @@
 #ifndef PICKLEJAR_H  // This is the include guard macro
 #define PICKLEJAR_H 1
 #include <array>
+#include <cassert>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -43,6 +44,69 @@
 #include <type_safe/optional_ref.hpp>
 #endif
 
+// START PICKLEJAR_ASSERT // taken from
+// https://stackoverflow.com/questions/3767869/adding-message-to-assert
+#ifndef NDEBUG
+#include <iostream>
+#define PICKLEJAR_ASSERT(condition, message)                           \
+  do {                                                                 \
+    if (!(condition)) {                                                \
+      std::cerr << "PICKLEJAR_ASSERTION: Condition `" #condition       \
+                   "` failed in "                                      \
+                << __FILE__ << " line " << __LINE__ << ": " << message \
+                << '\n';                                               \
+      std::exit(EXIT_FAILURE);                                         \
+    }                                                                  \
+  } while (false)
+#else
+#define PICKLEJAR_ASSERT(condition, message) \
+  do {                                       \
+  } while (false)
+#endif
+#ifndef NDEBUG
+#include <iostream>
+#define PICKLEJAR_MESSAGE(condition, message)                               \
+  do {                                                                      \
+    if (!(condition)) {                                                     \
+      std::cerr                                                             \
+          << "PICKLEJAR_VERBOSE_MODE: Non-critical condition: `" #condition \
+             "` failed in "                                                 \
+          << __FILE__ << " line " << __LINE__ << ": " << message << '\n';   \
+    }                                                                       \
+  } while (false)
+#else
+#define PICKLEJAR_MESSAGE(condition, message) \
+  do {                                        \
+  } while (false)
+#endif
+// END PICKLEJAR_ASSERT
+
+// START FUNCTION TO PRINT THE NAME OF A C++ TYPE TYPE_NAME()
+// taken from: https://stackoverflow.com/a/56766138
+// https://stackoverflow.com/questions/81870/is-it-possible-to-print-a-variables-type-in-standard-c/56766138#56766138
+#include <string_view>
+
+template <typename T>
+constexpr auto type_name() noexcept {
+  std::string_view name = "Error: unsupported compiler", prefix, suffix;
+#ifdef __clang__
+  name = __PRETTY_FUNCTION__;
+  prefix = "auto type_name() [T = ";
+  suffix = "]";
+#elif defined(__GNUC__)
+  name = __PRETTY_FUNCTION__;
+  prefix = "constexpr auto type_name() [with T = ";
+  suffix = "]";
+#elif defined(_MSC_VER)
+  name = __FUNCSIG__;
+  prefix = "auto __cdecl type_name<";
+  suffix = ">(void) noexcept";
+#endif
+  name.remove_prefix(prefix.size());
+  name.remove_suffix(suffix.size());
+  return name;
+}
+// END FUNCTION TO PRINT THE NAME OF A C++ TYPE TYPE_NAME()
 /*
 
   Copyright 2021 Pedro Tomas Guillen
@@ -91,6 +155,36 @@ using optional = type_safe::optional_ref<object_type>;
 // RETURN_RESULT_FROM_FILE may use RVO?
 #define RETURN_RESULT_FROM_FILE vector_input_data
 #endif
+
+// RUNTIME_MESSAGES
+#ifndef PICKLEJAR_ENABLE_VERBOSE_MODE
+// only non-critical messages will be disabled if you set this to 0
+#define PICKLEJAR_ENABLE_VERBOSE_MODE 1
+#endif
+#define PICKLEJAR_RUNTIME_READSIZE_MISSMATCH                                 \
+  "PICKLEJAR_RUNTIME_MESSAGE: The size that was read ("                      \
+      << byte_buffer.byte_counter.value()                                    \
+      << ") in the 'vector_insert_element_lambda' does NOT match the size "  \
+         "that was written to the file ("                                    \
+      << optional_size.value()                                               \
+      << "). Compare your write and read functions and make sure you are "   \
+         "reading all elements correctly including their versions. You may " \
+         "disable this check by adding "                                     \
+         "\"byte_vector_with_counter.set_counter(byte_vector_with_counter."  \
+         "size());\" near the end of the 'vector_insert_element_lambda'"
+
+#define PICKLEJAR_RUNTIME_READ_VERSION_MISSMATCH                         \
+  "PICKLEJAR_RUNTIME_MESSAGE: The version from the file ("               \
+      << optional_version.value()                                        \
+      << ") doesn't match with the Version of the function (" << Version \
+      << ")"
+
+#define PICKLEJAR_RUNTIME_BYTEVECTORWITHCOUNTER_BYTE_COUNTER_INVALIDATED       \
+  "The byte_counter for this ByteVectorWithCounter has been invalidated, "     \
+  "this happened because some part of your code tried to advance the counter " \
+  "by ("                                                                       \
+      << size_to_advance << ") which is more than it's remaining size ("       \
+      << size_remaining() << ")"
 
 // START WRITE_API
 // START object_stream_v1
@@ -417,7 +511,15 @@ concept PickleJarVectorInsertElementLambdaRequirements =
              ByteVectorWithCounter byte_vector_with_counter) {
   { function(container, byte_vector_with_counter) } -> std::same_as<bool>;
 };
-
+// Concept 5 container has size
+template <typename C>
+concept ContainerDeepCopyReadRequirements = requires(C a) {
+  { C() } -> std::same_as<C>;
+  { a.size() } -> std::same_as<typename C::size_type>;
+  { a.begin() } -> std::same_as<typename C::iterator>;
+  { a.end() } -> std::same_as<typename C::iterator>;
+  { a.empty() } -> std::same_as<bool>;
+};
 #define WRITELAMBDAREQUIREMENTS_MSG                                          \
   "PICKLEJAR_HELP: malformed 'write_element_lambda', make sure the "         \
   "lambda function takes the right parameters and returns true if write is " \
@@ -438,6 +540,9 @@ concept PickleJarVectorInsertElementLambdaRequirements =
   "sure the lambda function takes a BufferOrStreamObject, and a "   \
   "ByteVectorWithCounter as a parameter and "                       \
   "returns true if reading operation was successful"
+#define CONTAINERDEEPCOPYREADREQUIREMENTS_MSG                               \
+  "PICKLEJAR_HELP: You need to pass a container<Type> as first param that " \
+  "has .size() and is iterable Ex: std::vector or std::array"
 
 #define PICKLEJAR_CONCEPT(conditional, message) \
   static_assert(conditional, message)
@@ -445,6 +550,15 @@ concept PickleJarVectorInsertElementLambdaRequirements =
 #define PICKLEJAR_CONCEPT(conditional, message)
 #endif
 // END DEEP COPY CONCEPTS
+
+// CONCEPTS THAT ARE USE IN CONSTEXPR STATEMENTS
+template <typename C>
+concept ContainerHasReserve = requires(C a) {
+  { C() } -> std::same_as<C>;
+  { a.size() } -> std::same_as<typename C::size_type>;
+  { a.reserve() } -> std::same_as<void>;
+  { a.empty() } -> std::same_as<bool>;
+};
 // END CONCEPTS
 
 // START READ_API
@@ -1141,6 +1255,18 @@ template <class Type,
 // END READ_API
 
 // DEEP COPY FUNCTIONS
+template <class BufferOrStreamObject>
+constexpr auto get_buffer_or_stream_byte_counter(
+    BufferOrStreamObject &buffer_or_stream_object) -> size_t {
+  if constexpr (std::same_as<BufferOrStreamObject, std::ofstream>) {
+    return size_t(buffer_or_stream_object.tellp());
+  } else if constexpr (std::same_as<BufferOrStreamObject, std::ifstream>) {
+    return size_t(buffer_or_stream_object.tellg());
+  } else {
+    return buffer_or_stream_object.byte_counter.value();
+  }
+}
+
 template <size_t Version = 0, class BufferOrStreamObject,
           bool WriteSizeFunction(const size_t &, BufferOrStreamObject &) =
               picklejar::write_object_to_stream<size_t>,
@@ -1156,8 +1282,27 @@ auto write_object_deep_copy(const Type &object, const size_t object_size,
     if (!WriteSizeFunction(Version, buffer_or_stream_object)) return false;
   }
   if (WriteSizeFunction(object_size, buffer_or_stream_object)) {
-    return write_element_lambda(buffer_or_stream_object, object,
-                                object_size);  // NOLINT
+    size_t total_size_written_calculation =
+        get_buffer_or_stream_byte_counter(buffer_or_stream_object);
+
+    bool return_value = write_element_lambda(buffer_or_stream_object, object,
+                                             object_size);  // NOLINT
+    total_size_written_calculation =
+        get_buffer_or_stream_byte_counter(buffer_or_stream_object) -
+        total_size_written_calculation;
+    // clang-format off
+    PICKLEJAR_ASSERT(total_size_written_calculation == object_size,
+          "PICKLEJAR_RUNTIME_HELP: The size returned from the "
+	  "'element_size_getter_lambda("<<type_name<Type>()<<")' is ("
+	  << object_size <<") and the "
+          "size written (" << total_size_written_calculation <<") from the"
+	  "'write_element_lambda' does NOT match.\n"
+          "Double check you are correctly returning the total size to be "
+          "written for each object in the 'element_size_getter_lambda' and "
+          "also that you are writting that same amount of bytes in the "
+          "'write_element_lambda'");
+    // clang-format on
+    return return_value;
   }
   return false;
 }
@@ -1172,6 +1317,8 @@ auto write_vector_deep_copy(
     BufferOrStreamObject &buffer_or_stream_object,
     ElementSizeGetterLambda &&element_size_getter_lambda,
     WriteElementLambda &&write_element_lambda) -> bool {
+  PICKLEJAR_CONCEPT(ContainerDeepCopyReadRequirements<Container>,
+                    CONTAINERDEEPCOPYREADREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(
       (PickleJarWriteLambdaRequirements<WriteElementLambda,
                                         BufferOrStreamObject, Type>),
@@ -1187,11 +1334,13 @@ auto write_vector_deep_copy(
   }
   if (WriteSizeFunction(vector_input_data.size(), buffer_or_stream_object)) {
     for (const Type &object : vector_input_data) {
+      size_t object_size{element_size_getter_lambda(object)};
       // for each element we write the size of the object first
       if (!write_object_deep_copy<0, BufferOrStreamObject, WriteSizeFunction>(
-              object, element_size_getter_lambda(object),
-              buffer_or_stream_object, write_element_lambda))
+              object, object_size, buffer_or_stream_object,
+              write_element_lambda)) {
         return false;
+      }
     }
     return true;
   }
@@ -1225,6 +1374,11 @@ struct ByteVectorWithCounter {
   [[nodiscard]] auto would_it_be_full_if_so_invalidate(size_t size_to_advance)
       -> bool {
     if (size_to_advance > size_remaining()) {
+      if (PICKLEJAR_ENABLE_VERBOSE_MODE) {
+        PICKLEJAR_ASSERT(
+            0,
+            PICKLEJAR_RUNTIME_BYTEVECTORWITHCOUNTER_BYTE_COUNTER_INVALIDATED);
+      }
       byte_counter.reset();
       return true;
     }
@@ -1319,19 +1473,36 @@ auto read_object_deep_copy(BufferOrStreamObject &buffer_or_stream_object,
   if constexpr (Version > 0) {
     if (auto optional_version = ReadSizeFunction(buffer_or_stream_object);
         !optional_version or optional_version.value() != Version) {
+      if (PICKLEJAR_ENABLE_VERBOSE_MODE and optional_version) {
+        PICKLEJAR_MESSAGE(optional_version.value() == Version,
+                          PICKLEJAR_RUNTIME_READ_VERSION_MISSMATCH);
+      }
       return false;
     }
   }
 
-  if (auto optional_string_size = ReadSizeFunction(buffer_or_stream_object)) {
-    // if we got the size of our object in optional_string_size.value()
+  if (auto optional_size = ReadSizeFunction(buffer_or_stream_object)) {
+    // if we got the size of our object in optional_size.value()
     // we create a vector of char and we read the stream into it
-    ByteVectorWithCounter byte_buffer(optional_string_size.value());
+    ByteVectorWithCounter byte_buffer(optional_size.value());
     if (ReadBufferOrStreamFunction(buffer_or_stream_object,
                                    byte_buffer.byte_data.data(),
-                                   optional_string_size.value())) {
-      // if read is sucessful we create the object using it's byte_buffer bytes
-      return byte_buffer_lambda(byte_buffer);
+                                   optional_size.value())) {
+      // if read is sucessful we create the object using it's byte_buffer
+      // bytes
+      bool return_value = byte_buffer_lambda(byte_buffer);
+      if (return_value &&
+          optional_size.value() != byte_buffer.byte_counter.value()) {
+        PICKLEJAR_ASSERT(
+            optional_size.value() == byte_buffer.byte_counter.value(),
+            PICKLEJAR_RUNTIME_READSIZE_MISSMATCH);
+      }
+      if (PICKLEJAR_ENABLE_VERBOSE_MODE && !return_value) {
+        PICKLEJAR_MESSAGE(
+            optional_size.value() == byte_buffer.byte_counter.value(),
+            PICKLEJAR_RUNTIME_READSIZE_MISSMATCH);
+      }
+      return return_value;
     }
   }
   return false;
@@ -1352,15 +1523,24 @@ auto read_vector_deep_copy(
       (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
                                                       Container>),
       VECTORINSERTELEMENTLAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT(ContainerDeepCopyReadRequirements<Container>,
+                    CONTAINERDEEPCOPYREADREQUIREMENTS_MSG);
+
   size_t result_initial_size{result.size()};
   if constexpr (Version > 0) {
     if (auto optional_version = ReadSizeFunction(buffer_or_stream_object);
         !optional_version or optional_version.value() != Version) {
+      if (PICKLEJAR_ENABLE_VERBOSE_MODE and optional_version) {
+        PICKLEJAR_MESSAGE(optional_version.value() == Version,
+                          PICKLEJAR_RUNTIME_READ_VERSION_MISSMATCH);
+      }
       return {};
     }
   }
   if (auto optional_size = ReadSizeFunction(buffer_or_stream_object)) {
-    result.reserve(optional_size.value());
+    if constexpr (ContainerHasReserve<Container>) {
+      result.reserve(optional_size.value());
+    }
     for (size_t i{0}; i < optional_size.value(); ++i) {
       if (!read_object_deep_copy<0, BufferOrStreamObject, ReadSizeFunction,
                                  ReadBufferOrStreamFunction>(
@@ -1383,8 +1563,8 @@ auto deep_copy_vector_to_stream(
     const Container &vector_input_data, std::ofstream &ofs_output_file,
     ElementSizeGetterLambda &&element_size_getter_lambda,
     WriteElementLambda &&write_element_lambda) -> bool {
-  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
-                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(ContainerDeepCopyReadRequirements<Container>,
+                    CONTAINERDEEPCOPYREADREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT((PickleJarWriteLambdaRequirements<WriteElementLambda,
                                                       std::ofstream, Type>),
                     WRITELAMBDAREQUIREMENTS_MSG);
@@ -1419,8 +1599,9 @@ auto deep_copy_vector_to_file(
     const Container &vector_input_data, const std::string file_name,
     ElementSizeGetterLambda &&element_size_getter_lambda,
     WriteElementLambda &&write_element_lambda) -> bool {
-  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
-                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(ContainerDeepCopyReadRequirements<Container>,
+                    CONTAINERDEEPCOPYREADREQUIREMENTS_MSG);
+
   PICKLEJAR_CONCEPT((PickleJarWriteLambdaRequirements<WriteElementLambda,
                                                       std::ofstream, Type>),
                     WRITELAMBDAREQUIREMENTS_MSG);
@@ -1461,9 +1642,9 @@ auto deep_read_vector_from_stream(
       (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
                                                       Container>),
       VECTORINSERTELEMENTLAMBDAREQUIREMENTS_MSG);
+  PICKLEJAR_CONCEPT(ContainerDeepCopyReadRequirements<Container>,
+                    CONTAINERDEEPCOPYREADREQUIREMENTS_MSG);
 
-  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
-                    CONTAINERWITHHASDATAANDSIZE_MSG);
   return read_vector_deep_copy<Version>(result, ifs_input_file,
                                         vector_insert_element_lambda);
 }
@@ -1494,8 +1675,9 @@ auto deep_read_vector_from_file(
       (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
                                                       Container>),
       VECTORINSERTELEMENTLAMBDAREQUIREMENTS_MSG);
-  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
-                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(ContainerDeepCopyReadRequirements<Container>,
+                    CONTAINERDEEPCOPYREADREQUIREMENTS_MSG);
+
   std::ifstream ifs_input_file(file_name);
   return read_vector_deep_copy<Version>(result, ifs_input_file,
                                         vector_insert_element_lambda);
@@ -1537,8 +1719,9 @@ auto deep_copy_vector_to_buffer(
     ElementSizeGetterLambda &&element_size_getter_lambda,
     WriteElementLambda &&write_element_lambda)
     -> std::optional<ByteVectorWithCounter> {
-  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
-                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(ContainerDeepCopyReadRequirements<Container>,
+                    CONTAINERDEEPCOPYREADREQUIREMENTS_MSG);
+
   PICKLEJAR_CONCEPT(
       (PickleJarWriteLambdaRequirements<WriteElementLambda,
                                         ByteVectorWithCounter, Type>),
@@ -1597,8 +1780,8 @@ auto deep_read_vector_from_buffer(
       (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
                                                       Container>),
       VECTORINSERTELEMENTLAMBDAREQUIREMENTS_MSG);
-  PICKLEJAR_CONCEPT(ContainerHasDataAndSize<Container>,
-                    CONTAINERWITHHASDATAANDSIZE_MSG);
+  PICKLEJAR_CONCEPT(ContainerDeepCopyReadRequirements<Container>,
+                    CONTAINERDEEPCOPYREADREQUIREMENTS_MSG);
   ByteVectorWithCounter byte_vector_with_counter(vector_byte_buffer);
   return read_vector_deep_copy<Version, ByteVectorWithCounter,
                                picklejar::read_object_from_buffer<size_t>,
@@ -1648,7 +1831,18 @@ inline auto read_version_from_buffer(
     ByteVectorWithCounter &byte_vector_with_counter) -> std::optional<size_t> {
   return picklejar::read_object_from_buffer<size_t>(byte_vector_with_counter);
 }
-  //  auto deep_copy_string_to_stream
+
+template <size_t Version = 0>
+constexpr auto versioned_size() -> size_t {
+  if constexpr (Version > 0) {
+    // version + size as header
+    return sizeof(size_t) * 2;
+  } else {
+    // just the size as header
+    return sizeof(size_t);
+  }
+}
+//  auto deep_copy_string_to_stream
 
 }  // namespace picklejar
 #endif
