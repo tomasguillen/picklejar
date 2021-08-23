@@ -11,6 +11,38 @@
 #include <type_traits>
 #include <vector>
 
+// if you want to use this header file only and not have to include the
+// type_safe thirdparty library you can define DISABLE_TYPESAFE_OPTIONAL from
+// the console or your header file or cmake.
+// The implications are that for functions that take an "in" value
+// for example:
+// auto read_vector_from_stream(Container &vector_input_data,
+//                                           std::ifstream &ifstream_input_file)
+// takes vector_input_data as an "in" variable which means vector_input_data is
+// modified inside the function.
+//
+// I wanted to have a way to express this instead of having an "in" variable, so
+// we return a std::optional<Container>. The problem with this is the function
+// now returns a copy of vector_input_data, so instead we std::move the
+// Container into the optional. This is okay, but the ideal case would be to
+// return a reference of Container, but std::optional<Container&> cannot be done
+// because a reference is not a type. Instead we could do
+// std::optional<Container*> and return a pointer but I had existing code that
+// used this library and I didn't want to break it so instead we have a version
+// with move that uses std::optional<Container> and a version that uses a
+// thirdparty type_safe library that allows us to have an optional of a
+// reference in functionality. type_safe::optional_ref uses a pointer and acts
+// as a reference, therefore not breaking code that was previously using the
+// std::optional<Container> version. Both should be interchangeable with the
+// exception the type_safe doesn't move the Container variable, instead it would
+// modify it in-place and return a reference if successful. As long as you use
+// the optional.value() to access the Container your code shouldn't need any
+// changes.
+//#define DISABLE_TYPESAFE_OPTIONAL
+#ifndef DISABLE_TYPESAFE_OPTIONAL
+#include <type_safe/optional_ref.hpp>
+#endif
+
 /*
 
   Copyright 2021 Pedro Tomas Guillen
@@ -30,6 +62,36 @@
 */
 
 namespace picklejar {
+
+#ifdef DISABLE_TYPESAFE_OPTIONAL
+// Version 1 of PICKLEJAR_MAKE_OPTIONAL uses only std
+// The problem with this version of make_optional is we are moving a vector into
+// the optional, we could return an optional of a pointer to the vector but it
+// would break existing code and I like not having a pointer return value inside
+// the optional, which is why we use the type_safe library. The bad or good
+// thing in some cases is that when we return something using this version
+// std::moves the value out of the "In" variable the function was called with,
+// and so you should always use the .value() from the option if successful with
+// any of the two versions. If the function is unsuccessful it wont move
+// anything and you can still use the other "In" variable from it's own scope
+template <class object_type>
+using optional = std::optional<object_type>;
+#define PICKLEJAR_MAKE_OPTIONAL(object) std::make_optional(std::move(object))
+// RETURN_RESULT_FROM_FILE returns a copy in this case
+#define RETURN_RESULT_FROM_FILE result.value()
+#else
+// Version 2 of PICKLEJAR_MAKE_OPTIONAL uses thirdparty type_safe library
+// Instead of having "In" variables we return an optional_ref, this should be
+// pretty efficient and the returned interface is identical, it doesn't use
+// std::move so the "In" variable is still valid in it's scope in contrast with
+// the other make_optional version which uses std::move
+template <class object_type>
+using optional = type_safe::optional_ref<object_type>;
+#define PICKLEJAR_MAKE_OPTIONAL(object) type_safe::ref(object)
+// RETURN_RESULT_FROM_FILE may use RVO?
+#define RETURN_RESULT_FROM_FILE vector_input_data
+#endif
+
 // START WRITE_API
 // START object_stream_v1
 template <typename Type>
@@ -151,6 +213,8 @@ ifstream_is_sizeof_type_larger_than_remaining_readbytes(
   class_name(const class_name &) = delete;              \
   auto operator=(class_name &&)->class_name & = delete; \
   auto operator=(const class_name &)->class_name & = delete;
+// ---------------------- UTILITY MACRO FOR adding constructors to
+// ManagedStorage Classes
 // NOLINTNEXTLINE
 #define ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(class_name, storage)               \
   template <class... Args>                                                     \
@@ -167,6 +231,7 @@ ifstream_is_sizeof_type_larger_than_remaining_readbytes(
                        std::tuple_size_v<std::remove_reference_t<Tuple>>>{}) { \
   }
 
+// ManagedStorage v1 uses aligned_storage_t and inplace new
 // https://en.cppreference.com/w/cpp/language/new
 template <class Type>
 class ManagedAlignedStorageCopy {
@@ -180,7 +245,7 @@ class ManagedAlignedStorageCopy {
   ~ManagedAlignedStorageCopy() { (*pointer_to_copy).~Type(); }
   auto get_pointer_to_copy() -> Type * { return pointer_to_copy; }
 };
-
+// ManagedStorage v2 uses a C array and inplace new
 template <class Type>
 class ManagedAlignedBufferCopy {
   alignas(Type) unsigned char buf[sizeof(Type)]{};
@@ -194,6 +259,8 @@ class ManagedAlignedBufferCopy {
   auto get_pointer_to_copy() -> Type * { return pointer_to_copy; }
 };
 
+// ManagedStorage v3 uses union and in-place new, DON'T USE THIS ONE
+// explicit destructor is unreliable
 template <class Type>
 struct UnionHolder {
   DELETE_UNNEEDED_DEFAULTS(UnionHolder)
@@ -219,7 +286,7 @@ class ManagedAlignedUnionCopy {
   auto get_pointer_to_copy() -> Type * { return &holder.value_held; }
 };
 #define ManagedAlignedCopyDefault ManagedAlignedStorageCopy
-// END READ_API_HELPERS
+// END READ_API_HELPERS And ManagedStorage classes (to be able to hold a Type)
 // START CONCEPTS
 // only enable concepts if c++ > 17
 #if ((defined(_MSVC_LANG) && _MSVC_LANG > 201703L) || __cplusplus > 201703L)
@@ -264,8 +331,8 @@ concept DefaultConstructible = std::is_default_constructible_v<C>;
   "returns a tuple with the parameters to construct the object. SEE NON "     \
   "TRIVIAL EXAMPLES section in the readme file"
 
-// LAMBDA CONCEPTS
-
+// START LAMBDA CONCEPTS
+// Concept 1 return is a tuple and Type is constructible with it's elements
 template <template <typename...> class Template, typename T>
 struct is_specialization_of : std::false_type {};
 
@@ -294,7 +361,7 @@ concept PickleJarConstructorGeneratorLambdaRequirements =
   "PICKLEJAR_HELP: malformed 'constructor_generator_lambda' this lambda must " \
   "take no arguments and return a tuple with parameters that will be passed "  \
   "to construct the object"
-
+// Concept 2 takes correct arguments and returns nothing
 template <typename ManipulateBytesLambda, typename Type,
           typename ByteStorageMethod = std::array<char, sizeof(Type)>>
 concept PickleJarManipulateBytesLambdaRequirements =
@@ -315,8 +382,9 @@ concept PickleJarManipulateBytesLambdaRequirements =
   "sizeof(Type)>, which "                                                      \
   "contains the bytes read from the file for each object in the file' and no " \
   "return type"
-
-// DEEP COPY CONCEPTS
+// END LAMBDA CONCEPTS
+// START DEEP COPY CONCEPTS
+// Concept 1 takes correct arguments and returns true if write success
 template <typename WriteElementLambda, typename BufferOrStreamObject,
           typename Type>
 concept PickleJarWriteLambdaRequirements = requires(
@@ -327,13 +395,13 @@ concept PickleJarWriteLambdaRequirements = requires(
     } -> std::same_as<bool>;  // write_element_lambda parameter needs to return
                               // a true if write successful
 };
-
+// Concept 2 takes an object and returns a size_t
 template <typename ElementSizeGetterLambda, typename Type>
 concept PickleJarElementSizeGetterRequirements =
     requires(ElementSizeGetterLambda function, Type templated_object) {
   { function(templated_object) } -> std::same_as<size_t>;
 };
-
+// Concept 3 takes a byte buffer and returns true if successful
 struct ByteVectorWithCounter;  // forward declaration just for bytebufferlambda
                                // concept
 template <typename ByteBufferLambda>
@@ -341,7 +409,8 @@ concept PickleJarByteBufferLambdaRequirements = requires(
     ByteBufferLambda function, ByteVectorWithCounter byte_vector_with_counter) {
   { function(byte_vector_with_counter) } -> std::same_as<bool>;
 };
-
+// Concept 4 takes vector and byte_vector and returns true if successful
+// insertion into vector
 template <typename VectorInsertElementLambda, typename Container>
 concept PickleJarVectorInsertElementLambdaRequirements =
     requires(VectorInsertElementLambda function, Container container,
@@ -375,10 +444,10 @@ concept PickleJarVectorInsertElementLambdaRequirements =
 #else
 #define PICKLEJAR_CONCEPT(conditional, message)
 #endif
+// END DEEP COPY CONCEPTS
 // END CONCEPTS
 
 // START READ_API
-
 // START object_stream_v1
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
@@ -455,7 +524,7 @@ template <typename Type,
           class Container>
 [[nodiscard]] auto read_vector_from_stream(Container &vector_input_data,
                                            std::ifstream &ifstream_input_file)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   PICKLEJAR_CONCEPT((ContainerHasPushBack<Container, Type>),
                     CONTAINERWITHHASPUSHBACK_MSG);
@@ -486,11 +555,12 @@ template <typename Type,
              .get_pointer_to_copy()));
   }
   if (vector_input_data.size() > initial_vector_size) {
-    return std::make_optional<Container>(std::move(vector_input_data));
+    return PICKLEJAR_MAKE_OPTIONAL(vector_input_data);
   }
   return {};
 }
 // END stream_v1 uses object_stream_v1
+
 // START file_v1 uses stream_v1
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
@@ -507,10 +577,10 @@ template <class Type,
   }
   auto result{read_vector_from_stream<Type, ManagedAlignedCopy>(
       vector_input_data, ifstream_input_file)};
-  if (ifstream_close_and_check_is_invalid(ifstream_input_file)) {
+  if (ifstream_close_and_check_is_invalid(ifstream_input_file) or !result) {
     return {};
   }
-  return result;
+  return std::make_optional(RETURN_RESULT_FROM_FILE);
 }
 // END file_v1 uses stream_v1
 
@@ -839,7 +909,7 @@ template <class Type,
           class Container>
 [[nodiscard]] constexpr auto read_vector_from_buffer(
     Container &vector_input_data, BufferContainer buffer_with_input_bytes)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   PICKLEJAR_CONCEPT((ContainerHasPushBack<Container, Type>),
                     CONTAINERWITHHASPUSHBACK_MSG);
@@ -862,7 +932,7 @@ template <class Type,
              .get_pointer_to_copy()));
   }
   if (vector_input_data.size() > initial_vector_size) {
-    return std::make_optional<Container>(std::move(vector_input_data));
+    return PICKLEJAR_MAKE_OPTIONAL(vector_input_data);
   }
   return {};
 }
@@ -878,7 +948,7 @@ template <class Type,
     ManipulateBytesLambda
         &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
     ConstructorGeneratorLambda &&constructor_generator_lambda)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(
       (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
@@ -910,7 +980,7 @@ template <class Type,
              .get_pointer_to_copy()));
   }
   if (vector_input_data.size() > initial_vector_size) {
-    return std::make_optional<Container>(std::move(vector_input_data));
+    return PICKLEJAR_MAKE_OPTIONAL(vector_input_data);
   }
   return {};
 }
@@ -926,7 +996,7 @@ template <class Type,
     ManipulateBytesLambda
         &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
     ConstructorGeneratorLambda &&constructor_generator_lambda)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(
       (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
@@ -961,7 +1031,7 @@ template <class Type,
              .get_pointer_to_copy()));
   }
   if (vector_input_data.size() > initial_vector_size) {
-    return std::make_optional<Container>(std::move(vector_input_data));
+    return PICKLEJAR_MAKE_OPTIONAL(vector_input_data);
   }
   return {};
 }
@@ -976,7 +1046,7 @@ template <class Type,
     Container &vector_input_data, std::ifstream &ifstream_input_file,
     ManipulateBytesLambda
         &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(
       (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
@@ -995,7 +1065,7 @@ template <class Type,
     Container &vector_input_data, BufferContainer buffer_with_input_bytes,
     ManipulateBytesLambda
         &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(
       (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
@@ -1030,10 +1100,10 @@ template <class Type,
   auto result{read_vector_from_stream<Type, ManagedAlignedCopy>(
       vector_input_data, ifstream_input_file,
       manipulate_bytes_from_file_before_writing_to_instance_lambda)};
-  if (ifstream_close_and_check_is_invalid(ifstream_input_file)) {
+  if (ifstream_close_and_check_is_invalid(ifstream_input_file) or !result) {
     return {};
   }
-  return result;
+  return std::make_optional(RETURN_RESULT_FROM_FILE);
 }
 // END file_v2 uses stream_v2
 // START file_v3 uses stream_v3
@@ -1062,10 +1132,10 @@ template <class Type,
       vector_input_data, ifstream_input_file,
       manipulate_bytes_from_file_before_writing_to_instance_lambda,
       constructor_generator_lambda)};
-  if (ifstream_close_and_check_is_invalid(ifstream_input_file)) {
+  if (ifstream_close_and_check_is_invalid(ifstream_input_file) or !result) {
     return {};
   }
-  return result;
+  return std::make_optional(RETURN_RESULT_FROM_FILE);
 }
 // END file_v3 uses stream_v3
 // END READ_API
@@ -1277,7 +1347,7 @@ template <size_t Version = 0, class BufferOrStreamObject,
 auto read_vector_deep_copy(
     Container &result, BufferOrStreamObject &buffer_or_stream_object,
     VectorInsertElementLambda &&vector_insert_element_lambda)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(
       (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
                                                       Container>),
@@ -1301,7 +1371,7 @@ auto read_vector_deep_copy(
     }
   }
   if (result.size() > result_initial_size) {
-    return std::make_optional(std::move(result));
+    return PICKLEJAR_MAKE_OPTIONAL(result);
   }
   return {};
 }
@@ -1386,7 +1456,7 @@ template <size_t Version = 0, class Container,
 auto deep_read_vector_from_stream(
     Container &result, std::ifstream &ifs_input_file,
     VectorInsertElementLambda &&vector_insert_element_lambda)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(
       (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
                                                       Container>),
@@ -1419,7 +1489,7 @@ template <size_t Version = 0, class Container,
 auto deep_read_vector_from_file(
     Container &result, const std::string file_name,
     VectorInsertElementLambda &&vector_insert_element_lambda)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(
       (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
                                                       Container>),
@@ -1522,7 +1592,7 @@ template <size_t Version = 0, class Container,
 auto deep_read_vector_from_buffer(
     Container &result, ByteVectorWithCounter &vector_byte_buffer,
     VectorInsertElementLambda &&vector_insert_element_lambda)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   PICKLEJAR_CONCEPT(
       (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
                                                       Container>),
@@ -1578,6 +1648,7 @@ inline auto read_version_from_buffer(
     ByteVectorWithCounter &byte_vector_with_counter) -> std::optional<size_t> {
   return picklejar::read_object_from_buffer<size_t>(byte_vector_with_counter);
 }
+  //  auto deep_copy_string_to_stream
 
 }  // namespace picklejar
 #endif

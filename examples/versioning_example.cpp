@@ -18,7 +18,7 @@
 
 */
 
-#include "../picklejar.hpp"
+#include <picklejar.hpp>
 
 template <class IntBasedString>
 static void step1_write_to_file(auto &intbased_vec) {
@@ -47,7 +47,7 @@ static void step1_write_to_file(auto &intbased_vec) {
 
 template <class Container>
 static auto step1_read_to_file(Container &read_result)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   if (auto optional_result{picklejar::deep_read_vector_from_file<1>(
           read_result, "versioning_example.data",
           [](auto &_result,
@@ -69,7 +69,7 @@ static auto step1_read_to_file(Container &read_result)
     std::puts(
         ("fifth element_rand_id=" + optional_result.value().at(4).rand_str_id)
             .c_str());
-    return std::make_optional<Container>(std::move(optional_result.value()));
+    return PICKLEJAR_MAKE_OPTIONAL(optional_result.value());
   }
   std::puts("READ_ERROR_STEP1");
   return {};
@@ -104,7 +104,7 @@ static void step1() {
 
 template <class IntBasedString, class New_Pair, class Container>
 auto step2_translate_v1_to_v2(Container &result_changed)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   if (auto optional_result{picklejar::deep_read_vector_from_file<1>(
           result_changed, "versioning_example.data",
           [new_elementgenerator = 0.](auto &_result,
@@ -137,7 +137,7 @@ auto step2_translate_v1_to_v2(Container &result_changed)
                                   .new_important_pair_vector.at(1)
                                   .second))
                   .c_str());
-    return std::make_optional<Container>(std::move(optional_result.value()));
+    return PICKLEJAR_MAKE_OPTIONAL(optional_result.value());
   }
   std::puts("READ_ERROR_STEP2_(V1_READ_TRANSLATE_TO_V2)");
   return {};
@@ -196,7 +196,7 @@ void step2_v2_write_function(auto &result_changed) {
 
 template <class IntBasedString, class New_Pair, class Container>
 auto step2_v2_read_function(Container &result_changed_v2)
-    -> std::optional<Container> {
+    -> picklejar::optional<Container> {
   if (auto optional_result{picklejar::deep_read_vector_from_file<2>(
           result_changed_v2, "versioning_example.data",
           [](auto &_result,
@@ -244,7 +244,7 @@ auto step2_v2_read_function(Container &result_changed_v2)
                                   .new_important_pair_vector.at(1)
                                   .second))
                   .c_str());
-    return std::make_optional<Container>(std::move(optional_result.value()));
+    return PICKLEJAR_MAKE_OPTIONAL(optional_result.value());
   }
   std::puts("READ_ERROR_V2");
   return {};
@@ -323,9 +323,13 @@ void step3() {
                  " new pairs Constructed")
                     .c_str());
     }
+    auto operator==(const IntBasedString & rhs) {
+      return id == rhs.id;
+    }
   };
 
-  auto optional_version = picklejar::read_version_from_file("versioning_example.data");
+  auto optional_version =
+      picklejar::read_version_from_file("versioning_example.data");
   if (!optional_version) {
     std::puts("Failed to open file.");
     return;

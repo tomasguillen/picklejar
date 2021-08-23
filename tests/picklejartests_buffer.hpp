@@ -18,7 +18,7 @@
 */
 #include <hexer.hpp>
 
-#include "../picklejar.hpp"
+#include <picklejar.hpp>
 #include "picklejartests_teststructures.hpp"
 
 using namespace boost::ut;

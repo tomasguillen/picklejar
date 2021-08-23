@@ -55,6 +55,7 @@ set(CMAKE_SHARED_LINKER_FLAGS_ASAN
   
 add_subdirectory(ut)
 add_subdirectory(hexer)
+add_subdirectory(picklejar)
 
 
 list(APPEND EXTRA_WARNING_FLAGS
@@ -65,12 +66,12 @@ list(APPEND EXTRA_WARNING_FLAGS
 )
 
 add_executable(PickleJarTests picklejartests.cpp)
-target_link_libraries(PickleJarTests PRIVATE Hexer ut)
+target_link_libraries(PickleJarTests PRIVATE PickleJar Hexer ut)
 target_compile_features(PickleJarTests PRIVATE cxx_std_20)
 target_compile_options(PickleJarTests PUBLIC ${EXTRA_WARNING_FLAGS})
 
 
 add_executable(PickleJarOptionalExperimentTests optional_return_tests.cpp)
-target_link_libraries(PickleJarOptionalExperimentTests PRIVATE Hexer ut)
+target_link_libraries(PickleJarOptionalExperimentTests PRIVATE PickleJar Hexer ut)
 target_compile_features(PickleJarOptionalExperimentTests PRIVATE cxx_std_20)
 target_compile_options(PickleJarOptionalExperimentTests PUBLIC ${EXTRA_WARNING_FLAGS})

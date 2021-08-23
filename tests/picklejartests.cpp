@@ -17,8 +17,8 @@
 
 */
 #include <hexer.hpp>
+#include <picklejar.hpp>
 
-#include "../picklejar.hpp"
 #include "picklejartests_buffer.hpp"
 #include "picklejartests_file.hpp"
 #include "picklejartests_teststructures.hpp"

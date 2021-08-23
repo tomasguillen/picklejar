@@ -60,13 +60,22 @@ list(APPEND EXTRA_WARNING_FLAGS
   -Wno-unused
   -fmax-errors=1
   #-fconcepts-ts # use this if you need to compile with c++ version less than c++ 20
-)
+  )
+
+add_subdirectory(picklejar)
 
 add_executable(PickleJarExamples readme_examples.cpp)
 target_compile_features(PickleJarExamples PRIVATE cxx_std_20)
+target_link_libraries(PickleJarExamples PRIVATE PickleJar)
 target_compile_options(PickleJarExamples PUBLIC ${EXTRA_WARNING_FLAGS})
 
 
 add_executable(PickleJarVersioningExample versioning_example.cpp)
 target_compile_features(PickleJarVersioningExample PRIVATE cxx_std_20)
 target_compile_options(PickleJarVersioningExample PUBLIC ${EXTRA_WARNING_FLAGS})
+target_link_libraries(PickleJarVersioningExample PRIVATE PickleJar)
+
+add_executable(PickleJarVersioningExample2 versioning_example_2.cpp)
+target_compile_features(PickleJarVersioningExample2 PRIVATE cxx_std_20)
+target_compile_options(PickleJarVersioningExample2 PUBLIC ${EXTRA_WARNING_FLAGS})
+target_link_libraries(PickleJarVersioningExample2 PRIVATE PickleJar)

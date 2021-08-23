@@ -28,7 +28,7 @@ struct TestVector : public std::vector<T> {
   }
 };
 
-#include "../picklejar.hpp"
+#include <picklejar.hpp>
 static void exampleSolution3() {
   TestVector<std::string> string_vec;
   string_vec.push_back("string1");

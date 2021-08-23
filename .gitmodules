@@ -4,3 +4,6 @@
 [submodule "tests/hexer"]
 	path = tests/hexer
 	url = https://github.com/tomasguillen/hexer.git
+[submodule "thirdparty/type_safe"]
+	path = thirdparty/type_safe
+	url = https://github.com/foonathan/type_safe.git
