@@ -19,7 +19,6 @@
 */
 
 #include <map>
-#include <memory>
 #include <numeric>
 #include <picklejar.hpp>
 
@@ -224,7 +223,7 @@ auto step2_v2_read_function(Container &result_changed_v2)
             // we added a new member so we need to generate it here
             std::vector<New_Pair> _new_important_pair_vector{};
             auto remaining_bytes =
-                byte_vector_with_counter.get_remaining_bytes_as_span();
+                byte_vector_with_counter.get_remaining_bytes();
             auto optional_new_important_vector =
                 picklejar::read_vector_from_buffer<New_Pair>(
                     _new_important_pair_vector, remaining_bytes,
@@ -388,7 +387,7 @@ auto step4_translate_v2_to_v4(Container &result_changed_v4)
               return false;
             std::vector<New_Pair> _new_important_pair_vector{};
             auto remaining_bytes =
-                byte_vector_with_counter.get_remaining_bytes_as_span();
+                byte_vector_with_counter.get_remaining_bytes();
             auto optional_new_important_vector =
                 picklejar::read_vector_from_buffer<New_Pair>(
                     _new_important_pair_vector, remaining_bytes,
@@ -576,7 +575,7 @@ auto step4_v4_read_function(Container &result_changed_v4)
 
             std::vector<New_Pair> _new_important_pair_vector{};
             auto remaining_bytes =
-                byte_vector_with_counter.get_remaining_bytes_as_span();
+                byte_vector_with_counter.get_remaining_bytes();
             auto optional_new_important_vector =
                 picklejar::read_vector_from_buffer<New_Pair>(
                     _new_important_pair_vector, remaining_bytes,
@@ -700,8 +699,8 @@ void step4() {
 auto main(int argc, char *argv[]) -> int {
   if (argc <= 1) {
     std::puts(
-        "\nPickleJar Versioning Example\nUsage: ./versioning_example stepN\n "
-        "There are 3 steps meant to be be called one after the other that "
+        "\nPickleJar Versioning Example 2\nUsage: ./versioning_example stepN\n "
+        "There are 4 steps meant to be be called one after the other that "
         "showcase the following example: \n step1) Assume you have written a "
         "program that uses the picklejar library to save/load a vector of "
         "'IntBasedString' objects into/from a file.\n step2) After releasing "
@@ -716,7 +715,11 @@ auto main(int argc, char *argv[]) -> int {
         "because "
         "everybody should have upgraded by now, in step3 you drop support of "
         "version1 by showing an error message if the version of the file is "
-        "older than version 2.");
+        "older than version 2."
+        "step4) Similar to step2, we change our IntBasedString to contain a "
+        "map<string,trivial_object>, once again we have to accept 2 different "
+        "versions, v2 and our new v4. Map requires using deep copy because "
+        "it's not sequential.");
     return EXIT_FAILURE;
   }
   auto step = std::string(argv[1]);
@@ -738,5 +741,4 @@ auto main(int argc, char *argv[]) -> int {
       step4();
       break;
   }
-  // exampleSolution1fFileStructChangeWithVersioning();
 }

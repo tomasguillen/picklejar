@@ -17,8 +17,8 @@
 
 */
 #include <hexer.hpp>
-
 #include <picklejar.hpp>
+
 #include "picklejartests_teststructures.hpp"
 
 using namespace boost::ut;
@@ -32,10 +32,12 @@ void picklejartests_buffer() {
          auto &bytes_from_file) mutable {
         constexpr auto class_member_offset = offsetof(TestStructure, id);
 
-        hexer::print_address_range_as_hex_unchecked(bytes_from_file, sizeof(TestStructure),
-                     class_member_offset, sizeof(std::string));
-        hexer::print_address_range_as_hex_unchecked(valid_bytes_from_new_blank_instance, sizeof(TestStructure),
-                     class_member_offset, sizeof(std::string));
+        hexer::print_address_range_as_hex_unchecked(
+            bytes_from_file, sizeof(TestStructure), class_member_offset,
+            sizeof(std::string));
+        hexer::print_address_range_as_hex_unchecked(
+            valid_bytes_from_new_blank_instance, sizeof(TestStructure),
+            class_member_offset, sizeof(std::string));
         picklejar::util::preserve_blank_instance_member(
             class_member_offset, sizeof(std::string),
             valid_bytes_from_new_blank_instance, bytes_from_file);
@@ -43,7 +45,7 @@ void picklejartests_buffer() {
             bytes_from_file, blank_instance, sizeof(TestStructure));
 
         hexer::print_object_as_hex(blank_instance, class_member_offset,
-                     sizeof(std::string));
+                                   sizeof(std::string));
       };
   auto &&preserve_constructed_id_in_our_new_copy_and_modify_it =
       [preserve_constructed_id_in_our_new_copy, count = 1](
@@ -302,9 +304,8 @@ void picklejartests_buffer() {
     TestStructure test_object{"original"};
     picklejar::ManagedAlignedStorageCopy<TestStructure> copy{};
     auto test_buffer{picklejar::write_object_to_buffer(test_object)};
-    size_t bytes_read_so_far{};
     auto recovered_object = *(read_object_from_buffer<TestStructure>(
-                                  copy, test_buffer, bytes_read_so_far))
+                                  copy, test_buffer))
                                  .get_pointer_to_copy();
                                  };*/
 
@@ -345,10 +346,8 @@ void picklejartests_buffer() {
   "object_buffer_v1_innerstruct"_test = [&] {
     TrivialStructure test_object{};
     auto test_buffer{picklejar::write_object_to_buffer(test_object)};
-    size_t bytes_read_so_far{};
     auto recovered_object =
-        picklejar::read_object_from_buffer<TrivialStructure>(test_buffer,
-                                                             bytes_read_so_far);
+        picklejar::read_object_from_buffer<TrivialStructure>(test_buffer);
     expect(true == (recovered_object == test_object))
         << "test object not equal to recovered object";
   };
@@ -365,21 +364,18 @@ void picklejartests_buffer() {
   "object_buffer_v3"_test = [&] {
     const TestStructure test_object{};
     auto test_buffer{picklejar::write_object_to_buffer(test_object)};
-    size_t bytes_read_so_far{};
     auto recovered_object = picklejar::read_object_from_buffer<TestStructure>(
-        test_buffer, bytes_read_so_far, preserve_constructed_id_in_our_new_copy,
+        test_buffer, preserve_constructed_id_in_our_new_copy,
         constructor_generator_one_param);
     test_teststructure("buffer_v3_", recovered_object, test_object,
                        startswith_firstconstructor_expected_modification);
-    bytes_read_so_far = 0;
     auto recovered_object_2 = picklejar::read_object_from_buffer<TestStructure>(
-        test_buffer, bytes_read_so_far, preserve_constructed_id_in_our_new_copy,
+        test_buffer, preserve_constructed_id_in_our_new_copy,
         constructor_generator_two_params);
     test_teststructure("buffer_v3_", recovered_object_2, test_object,
                        startswith_secondconstructor_expected_modification);
-    bytes_read_so_far = 0;
     auto recovered_object_3 = picklejar::read_object_from_buffer<TestStructure>(
-        test_buffer, bytes_read_so_far,
+        test_buffer,
         preserve_constructed_id_in_our_new_copy_and_modify_it,
         constructor_generator_two_params);
     test_teststructure("buffer_v3_", recovered_object_3, test_object,
@@ -389,16 +385,14 @@ void picklejartests_buffer() {
   "object_buffer_v2"_test = [&] {
     const TestStructure test_object{};
     auto test_buffer{picklejar::write_object_to_buffer(test_object)};
-    size_t bytes_read_so_far{};
     TestStructure recovered_object =
         picklejar::read_object_from_buffer<TestStructure>(
-            test_buffer, bytes_read_so_far,
+            test_buffer,
             preserve_constructed_id_in_our_new_copy);
     test_teststructure("buffer_v2_", recovered_object, test_object,
                        startswith_default_expected_modification);
-    bytes_read_so_far = 0;
     auto recovered_object_2 = picklejar::read_object_from_buffer<TestStructure>(
-        test_buffer, bytes_read_so_far,
+        test_buffer,
         preserve_constructed_id_in_our_new_copy_and_modify_it);
     test_teststructure("buffer_v2_", recovered_object_2, test_object,
                        startswith_modified_expected_modification);
@@ -408,17 +402,14 @@ void picklejartests_buffer() {
   "write_object_to_buffer_array_version"_test = [&] {
     const TrivialStructure test_object{};
     auto test_buffer{picklejar::write_object_to_buffer_array(test_object)};
-    size_t bytes_read_so_far{};
     auto recovered_object =
-        picklejar::read_object_from_buffer<TrivialStructure>(test_buffer,
-                                                             bytes_read_so_far);
+        picklejar::read_object_from_buffer<TrivialStructure>(test_buffer);
     expect(true == (recovered_object == test_object))
         << "test object not equal to recovered object";
   };
 
-
   auto prepare_triviallyconstructiblestruct_array_for_tests =
-    []() -> std::array<TrivialStructure, 4> {
+      []() -> std::array<TrivialStructure, 4> {
     std::array<TrivialStructure, 4> struct_arr{};
     struct_arr.at(0).byte2_note_range_start = 1;
     struct_arr.at(0).byte2_note_range_end = 8738;
@@ -430,12 +421,14 @@ void picklejartests_buffer() {
     struct_arr.at(3).byte2_note_range_end = 8738;
     return struct_arr;
   };
-  auto &&buffer_write_function_array = [](auto &struct_arr) -> std::array<char, 4*sizeof(TrivialStructure)> {
+  auto &&buffer_write_function_array =
+      [](auto &struct_arr) -> std::array<char, 4 * sizeof(TrivialStructure)> {
     return {picklejar::write_vector_to_buffer<TrivialStructure>(struct_arr)};
-  };  
+  };
   "write_to_buffer_array_version"_test = [&] {
     do_buffer_v1_test_w_data(
-        "buffer_v1_", buffer_write_function_array, buffer_v1_test_data_innerstruct,
+        "buffer_v1_", buffer_write_function_array,
+        buffer_v1_test_data_innerstruct,
         prepare_triviallyconstructiblestruct_array_for_tests);
   };
 }

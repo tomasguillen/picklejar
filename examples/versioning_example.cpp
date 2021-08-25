@@ -18,6 +18,9 @@
 
 */
 
+#include <map>
+#include <memory>
+#include <numeric>
 #include <picklejar.hpp>
 
 template <class IntBasedString>
@@ -28,6 +31,7 @@ static void step1_write_to_file(auto &intbased_vec) {
             return sizeof(IntBasedString::id) + object.rand_str_id.size();
           },
           [](auto &_ofs_output_file, const auto &object, size_t element_size) {
+            auto total_size = size_t(_ofs_output_file.tellp());
             // write the id
             if (!picklejar::write_object_to_stream(object.id,
                                                    _ofs_output_file)) {
@@ -46,7 +50,7 @@ static void step1_write_to_file(auto &intbased_vec) {
 }
 
 template <class Container>
-static auto step1_read_to_file(Container &read_result)
+static auto step1_read_from_file(Container &read_result)
     -> picklejar::optional<Container> {
   if (auto optional_result{picklejar::deep_read_vector_from_file<1>(
           read_result, "versioning_example.data",
@@ -54,10 +58,12 @@ static auto step1_read_to_file(Container &read_result)
              picklejar::ByteVectorWithCounter &byte_vector_with_counter) {
             auto optional_id = byte_vector_with_counter.read<int>();
             if (!optional_id) return false;
-            std::string _pretty_id(
-                std::begin(byte_vector_with_counter) +
-                    int(byte_vector_with_counter.byte_counter.value()),
-                std::end(byte_vector_with_counter));
+            std::string _pretty_id(byte_vector_with_counter.current_iterator(),
+                                   std::end(byte_vector_with_counter));
+            // advance the byte counter by the remaning bytes
+            if (!byte_vector_with_counter.advance_counter(
+                    byte_vector_with_counter.size_remaining()))
+              return false;
 
             _result.emplace_back(optional_id.value(), _pretty_id);
             return true;
@@ -96,7 +102,7 @@ static void step1() {
   std::vector<IntBasedString> read_result;
   // after the next instruction if read is successful read_result will be
   // moved inside the optional
-  auto optional_read_result = step1_read_to_file(read_result);
+  auto optional_read_result = step1_read_from_file(read_result);
   if (optional_read_result) {
     // do stuff with optional_read_result.value()
   }
@@ -112,10 +118,13 @@ auto step2_translate_v1_to_v2(Container &result_changed)
                                           &byte_vector_with_counter) mutable {
             auto optional_id = byte_vector_with_counter.read<int>();
             if (!optional_id) return false;
-            std::string _pretty_id(
-                std::begin(byte_vector_with_counter) +
-                    int(byte_vector_with_counter.byte_counter.value()),
-                std::end(byte_vector_with_counter));
+            std::string _pretty_id(byte_vector_with_counter.current_iterator(),
+                                   std::end(byte_vector_with_counter));
+            // advance the byte counter by the remaning bytes
+            if (!byte_vector_with_counter.advance_counter(
+                    byte_vector_with_counter.size_remaining()))
+              return false;
+
             // we added a new member so we need to generate it here
             std::vector<New_Pair> _new_important_pair_vector{
                 {3., 1. * ++new_elementgenerator},
@@ -215,7 +224,7 @@ auto step2_v2_read_function(Container &result_changed_v2)
             // we added a new member so we need to generate it here
             std::vector<New_Pair> _new_important_pair_vector{};
             auto remaining_bytes =
-                byte_vector_with_counter.get_remaining_bytes_as_span();
+                byte_vector_with_counter.get_remaining_bytes();
             auto optional_new_important_vector =
                 picklejar::read_vector_from_buffer<New_Pair>(
                     _new_important_pair_vector, remaining_bytes,
@@ -225,6 +234,10 @@ auto step2_v2_read_function(Container &result_changed_v2)
                       picklejar::util::copy_new_bytes_to_instance(
                           bytes_from_file, blank_instance, sizeof(New_Pair));
                     });
+            // advance the byte counter by the remaning bytes
+            if (!byte_vector_with_counter.advance_counter(
+                    byte_vector_with_counter.size_remaining()))
+              return false;
             if (!optional_new_important_vector) return false;
             _result.emplace_back(optional_id.value(), _pretty_id,
                                  optional_new_important_vector.value());
@@ -323,9 +336,7 @@ void step3() {
                  " new pairs Constructed")
                     .c_str());
     }
-    auto operator==(const IntBasedString & rhs) {
-      return id == rhs.id;
-    }
+    auto operator==(const IntBasedString &rhs) { return id == rhs.id; }
   };
 
   auto optional_version =
@@ -350,6 +361,7 @@ void step3() {
     return;
   }
   // do stuff with optional_result_changed_v2.value()
+
   // then we write from file on application end
   step2_v2_write_function<IntBasedString, New_Pair>(
       optional_result_changed_v2.value());
@@ -358,17 +370,20 @@ void step3() {
 auto main(int argc, char *argv[]) -> int {
   if (argc <= 1) {
     std::puts(
-        "\nPickleJar Versioning Example\nUsage: ./versioning_example stepN\n "
-        "There are 3 steps meant to be be called one after the other that "
+        "\nPickleJar Versioning Example 2\nUsage: ./versioning_example stepN\n "
+        "There are 4 steps meant to be be called one after the other that "
         "showcase the following example: \n step1) Assume you have written a "
         "program that uses the picklejar library to save/load a vector of "
         "'IntBasedString' objects into/from a file.\n step2) After releasing "
         "the program realize that you need to make some changes to "
         "'IntBasedString', your program now needs to accept 2 different "
         "versions of the file: v1 that was written in step 1, and a new "
-        "version that takes the changes you have done in step2 into account.\n "
-        "step3) Assume you have gone through this a few times or some time has "
-        "passed and you no longer want to support the version in step1 because "
+        "version that takes the changes you have done in step2 into "
+        "account.\n "
+        "step3) Assume you have gone through this a few times or some time "
+        "has "
+        "passed and you no longer want to support the version in step1 "
+        "because "
         "everybody should have upgraded by now, in step3 you drop support of "
         "version1 by showing an error message if the version of the file is "
         "older than version 2.");
@@ -390,5 +405,4 @@ auto main(int argc, char *argv[]) -> int {
       step3();
       break;
   }
-  // exampleSolution1fFileStructChangeWithVersioning();
 }

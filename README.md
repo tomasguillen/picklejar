@@ -1,6 +1,19 @@
 # C++ Pickle Jar
-Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers.
+Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers. A simple versioning system prevents you from making common mistakes and it allows you to update the objects stored after the fact.
 
+## Versioning System
+Only the deep copy/read API is setup to be able to write versioned objects and vectors, you can see a complete example that uses all the capabilites of this library in *examples/versioning_example.cpp* and *examples/versioning_example_2.cpp*, the second is a copy of the first with one step and they have very similar usage.
+
+If you are trying to store non trivial types, I highly recommend you compile the versioning examples since they pretty much show the whole point of this library and you should try to modify the code to store and write the object you are interested in from the IntBasedString struct in those files.
+
+
+## Two APIs:
+* One for deep copying/reading with versioning and byte size redundancy and,
+* A lower level API that just writes the bytes of the object with special read functions to account for complex object caveats
+
+## Highlights:
+1. Both APIs work with streams, files and arbitrary buffers of bytes.
+2. You can mix both APIs to have redundancy and speed where is needed.
 
 ## How to use PickleJar to store and recall Trivial Types (ints, floats, doubles, simple structs and classes, etc)
 This is how to write a vector of ints to a file named "example1.data":
