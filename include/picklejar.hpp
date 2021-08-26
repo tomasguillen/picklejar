@@ -381,6 +381,165 @@ class ManagedAlignedUnionCopy {
 };
 #define ManagedAlignedCopyDefault ManagedAlignedStorageCopy
 // END READ_API_HELPERS And ManagedStorage classes (to be able to hold a Type)
+
+template <class ContainerOrViewType>
+struct ByteContainerOrViewWithCounter {
+  ContainerOrViewType byte_data{};
+  std::optional<size_t> byte_counter{0};
+  ByteContainerOrViewWithCounter() = default;
+  template <class... Args>
+  explicit ByteContainerOrViewWithCounter(Args &&...args)
+      : byte_data(std::forward<Args>(args)...) {}
+
+  /*
+  ByteContainerOrViewWithCounter(ByteContainerOrViewWithCounter &_rhs)
+      : byte_data(std::begin(_rhs.byte_data), std::end(_rhs.byte_data)),
+        byte_counter(_rhs.byte_counter) {}
+
+  ByteContainerOrViewWithCounter(ByteContainerOrViewWithCounter &&_rhs) noexcept
+  : byte_data(std::move(_rhs.byte_data)), byte_counter(_rhs.byte_counter) {}*/
+
+  [[nodiscard]] auto size() const { return byte_data.size(); }
+  [[nodiscard]] auto size_remaining() const {
+    return byte_counter ? size() - byte_counter.value() : 0;
+  }
+
+  void set_counter(size_t new_counter) { byte_counter = new_counter; }
+
+  [[nodiscard]] auto would_it_be_full_if_so_invalidate(size_t size_to_advance)
+      -> bool {
+    if (size_to_advance > size_remaining()) {
+      if (PICKLEJAR_ENABLE_VERBOSE_MODE) {
+        PICKLEJAR_ASSERT(
+            0,
+            PICKLEJAR_RUNTIME_BYTEVECTORWITHCOUNTER_BYTE_COUNTER_INVALIDATED);
+      }
+      byte_counter.reset();
+      return true;
+    }
+    return false;
+  }
+
+  [[nodiscard]] auto advance_counter(size_t size_to_advance) -> bool {
+    if (would_it_be_full_if_so_invalidate(size_to_advance)) return false;
+    byte_counter.value() += size_to_advance;
+    return true;
+  }
+
+  auto write(const char *object_ptr, size_t object_size) -> bool {
+    if (would_it_be_full_if_so_invalidate(object_size)) return false;
+    std::memcpy(byte_data.data() + byte_counter.value(), object_ptr,
+                object_size);
+    byte_counter.value() += object_size;
+    return true;
+  }
+
+  template <class Type>
+  auto write(const Type &object, size_t object_size) -> bool {
+    return write(reinterpret_cast<const char *>(&object), object_size);
+  }
+
+  template <class Type>
+  auto write(const Type &object) -> bool {
+    return write(object, sizeof(Type));
+  }
+
+  auto current_data_pos() {
+    if (!byte_counter)
+      assert(0);  // counter shouldn't have been invalidated at this point
+    return byte_data.data() + long(byte_counter.value());
+  }
+
+  template <class PointerType>
+  auto read(PointerType *destination_to_copy_to, const size_t size_to_read)
+      -> bool {
+    if (would_it_be_full_if_so_invalidate(size_to_read)) return false;
+    // NOLINTNEXTLINE
+    std::memcpy(reinterpret_cast<char *>(destination_to_copy_to),
+                current_data_pos(), size_to_read);
+    byte_counter.value() += size_to_read;
+    return true;
+  }
+
+  template <class Type,
+            class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
+  [[nodiscard]] auto read(ManagedAlignedCopy &copy) -> ManagedAlignedCopy & {
+    read(copy.get_pointer_to_copy(), sizeof(Type));
+    return copy;
+  }
+
+  template <class Type,
+            class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
+  [[nodiscard]] auto read() -> std::optional<Type> {
+    static_assert(
+        std::is_trivially_copyable_v<Type>,
+        "Object needs to be trivially copiable, you can use the "
+        "read_object_from_buffer API if you want to copy non-trivial types.");
+    ManagedAlignedCopy copy{};
+    return *(read<Type>(copy)).get_pointer_to_copy();
+  }
+  auto begin() { return std::begin(byte_data); }
+  auto end() { return std::end(byte_data); }
+  friend auto begin(ByteContainerOrViewWithCounter &byte_vector_with_counter) {
+    return byte_vector_with_counter.begin();
+  }
+  friend auto end(ByteContainerOrViewWithCounter &byte_vector_with_counter) {
+    return byte_vector_with_counter.end();
+  }
+
+  auto current_iterator() {
+    if (!byte_counter) return end();
+    return begin() + long(byte_counter.value());
+  }
+
+  // return current_iterator + offset
+  auto offset_iterator(size_t size_to_advance) {
+    if (would_it_be_full_if_so_invalidate(size_to_advance)) return end();
+    return current_iterator() + long(size_to_advance);
+  }
+
+  auto get_remaining_bytes_as_vector() -> std::vector<char> {
+    return {current_iterator(), std::end(byte_data)};
+  }
+
+  auto get_remaining_bytes_as_span() -> std::span<char> {
+    return {current_iterator(), size_remaining()};
+  }
+
+  [[nodiscard]] auto invalid() const -> bool {
+    return !byte_counter.has_value();
+  }
+};
+
+struct ByteSpanWithCounter : ByteContainerOrViewWithCounter<std::span<char>> {
+  ByteSpanWithCounter(ByteSpanWithCounter &_rhs) = default;
+  ByteSpanWithCounter(ByteSpanWithCounter &&_rhs) noexcept = default;
+  explicit ByteSpanWithCounter(std::span<char> _byte_data)
+      : ByteContainerOrViewWithCounter<std::span<char>>(std::begin(_byte_data),
+                                                        _byte_data.size()) {}
+  explicit ByteSpanWithCounter(auto _iterator, size_t _data_size)
+      : ByteContainerOrViewWithCounter<std::span<char>>(_iterator, _data_size) {
+  }
+};
+
+struct ByteVectorWithCounter
+    : ByteContainerOrViewWithCounter<std::vector<char>> {
+  ByteVectorWithCounter(ByteVectorWithCounter &_rhs) = default;
+  ByteVectorWithCounter(ByteVectorWithCounter &&_rhs) noexcept = default;
+  explicit ByteVectorWithCounter(size_t number_of_bytes)
+      : ByteContainerOrViewWithCounter<std::vector<char>>{number_of_bytes} {}
+
+  explicit ByteVectorWithCounter(auto begin_iterator, auto end_iterator)
+      : ByteContainerOrViewWithCounter<std::vector<char>>{begin_iterator,
+                                                          end_iterator} {}
+  auto get_remaining_bytes() -> ByteVectorWithCounter {
+    return ByteVectorWithCounter{current_iterator(), std::end(byte_data)};
+  }
+  auto get_remaining_bytes_as_span_with_counter() -> ByteSpanWithCounter {
+    return ByteSpanWithCounter{current_iterator(), size_remaining()};
+  }
+};
+
 // START CONCEPTS
 // only enable concepts if c++ > 17
 #if ((defined(_MSVC_LANG) && _MSVC_LANG > 201703L) || __cplusplus > 201703L)
@@ -496,8 +655,6 @@ concept PickleJarElementSizeGetterRequirements =
   { function(templated_object) } -> std::same_as<size_t>;
 };
 // Concept 3 takes a byte buffer and returns true if successful
-struct ByteVectorWithCounter;  // forward declaration just for bytebufferlambda
-                               // concept
 template <typename ByteBufferLambda>
 concept PickleJarByteBufferLambdaRequirements = requires(
     ByteBufferLambda function, ByteVectorWithCounter byte_vector_with_counter) {
@@ -567,6 +724,16 @@ concept SequentialContainerOfChar = requires(C a) {
   { a.data() } -> std::same_as<typename C::value_type *>;
   { a.empty() } -> std::same_as<bool>;
 };
+
+template <typename C>
+concept PickleJarValidByteContainerOrViewType = requires(C a) {
+  requires std::same_as<C, ByteVectorWithCounter> ||
+      std::same_as<C, ByteSpanWithCounter>;
+};
+
+#define VALIDBYTECONTAINERORVIEWTYPE_MSG                                  \
+  "PICKLEJAR_HELP: You need to pass either a ByteVectorWithCounter or a " \
+  "ByteSpanWithCounter"
 
 // END CONCEPTS
 
@@ -829,142 +996,6 @@ auto read_object_from_file(
 }
 // END object_file_v2_copy uses object_file_v2
 
-struct ByteVectorWithCounter {
-  std::vector<char> byte_data{};
-  std::optional<size_t> byte_counter{0};
-  explicit ByteVectorWithCounter(size_t number_of_bytes)
-      : byte_data(number_of_bytes) {}
-  ByteVectorWithCounter(std::span<char> _byte_data)
-      : byte_data(std::begin(_byte_data), std::end(_byte_data)) {}
-  ByteVectorWithCounter(auto &_byte_data)
-      : ByteVectorWithCounter(std::span<char>(_byte_data)) {}
-
-  ByteVectorWithCounter(ByteVectorWithCounter &_rhs) = default;
-  ByteVectorWithCounter(ByteVectorWithCounter &&_rhs) noexcept = default;
-
-  explicit ByteVectorWithCounter(auto begin_iterator, auto end_iterator)
-      : byte_data(begin_iterator, end_iterator) {}
-  /*
-  ByteVectorWithCounter(ByteVectorWithCounter &_rhs)
-      : byte_data(std::begin(_rhs.byte_data), std::end(_rhs.byte_data)),
-        byte_counter(_rhs.byte_counter) {}
-
-  ByteVectorWithCounter(ByteVectorWithCounter &&_rhs) noexcept
-  : byte_data(std::move(_rhs.byte_data)), byte_counter(_rhs.byte_counter) {}*/
-
-  [[nodiscard]] auto size() const { return byte_data.size(); }
-  [[nodiscard]] auto size_remaining() const {
-    return byte_counter ? size() - byte_counter.value() : 0;
-  }
-
-  void set_counter(size_t new_counter) { byte_counter = new_counter; }
-
-  [[nodiscard]] auto would_it_be_full_if_so_invalidate(size_t size_to_advance)
-      -> bool {
-    if (size_to_advance > size_remaining()) {
-      if (PICKLEJAR_ENABLE_VERBOSE_MODE) {
-        PICKLEJAR_ASSERT(
-            0,
-            PICKLEJAR_RUNTIME_BYTEVECTORWITHCOUNTER_BYTE_COUNTER_INVALIDATED);
-      }
-      byte_counter.reset();
-      return true;
-    }
-    return false;
-  }
-
-  [[nodiscard]] auto advance_counter(size_t size_to_advance) -> bool {
-    if (would_it_be_full_if_so_invalidate(size_to_advance)) return false;
-    byte_counter.value() += size_to_advance;
-    return true;
-  }
-
-  auto write(const char *object_ptr, size_t object_size) -> bool {
-    if (would_it_be_full_if_so_invalidate(object_size)) return false;
-    std::memcpy(byte_data.data() + byte_counter.value(), object_ptr,
-                object_size);
-    byte_counter.value() += object_size;
-    return true;
-  }
-
-  template <class Type>
-  auto write(const Type &object, size_t object_size) -> bool {
-    return write(reinterpret_cast<const char *>(&object), object_size);
-  }
-
-  template <class Type>
-  auto write(const Type &object) -> bool {
-    return write(object, sizeof(Type));
-  }
-
-  auto current_data_pos() {
-    if (!byte_counter)
-      assert(0);  // counter shouldn't have been invalidated at this point
-    return byte_data.data() + long(byte_counter.value());
-  }
-
-  template <class PointerType>
-  auto read(PointerType *destination_to_copy_to, const size_t size_to_read)
-      -> bool {
-    if (would_it_be_full_if_so_invalidate(size_to_read)) return false;
-    // NOLINTNEXTLINE
-    std::memcpy(reinterpret_cast<char *>(destination_to_copy_to),
-                current_data_pos(), size_to_read);
-    byte_counter.value() += size_to_read;
-    return true;
-  }
-
-  template <class Type,
-            class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
-  [[nodiscard]] auto read(ManagedAlignedCopy &copy) -> ManagedAlignedCopy & {
-    read(copy.get_pointer_to_copy(), sizeof(Type));
-    return copy;
-  }
-
-  template <class Type,
-            class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
-  [[nodiscard]] auto read() -> std::optional<Type> {
-    PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
-    ManagedAlignedCopy copy{};
-    return *(read<Type>(copy)).get_pointer_to_copy();
-  }
-  auto begin() { return std::begin(byte_data); }
-  auto end() { return std::end(byte_data); }
-  friend auto begin(ByteVectorWithCounter &byte_vector_with_counter) {
-    return byte_vector_with_counter.begin();
-  }
-  friend auto end(ByteVectorWithCounter &byte_vector_with_counter) {
-    return byte_vector_with_counter.end();
-  }
-
-  auto current_iterator() {
-    if (!byte_counter) return end();
-    return begin() + long(byte_counter.value());
-  }
-
-  // return current_iterator + offset
-  auto offset_iterator(size_t size_to_advance) {
-    if (would_it_be_full_if_so_invalidate(size_to_advance)) return end();
-    return current_iterator() + long(size_to_advance);
-  }
-
-  auto get_remaining_bytes() -> ByteVectorWithCounter {
-    return ByteVectorWithCounter{current_iterator(), std::end(byte_data)};
-  }
-
-  auto get_remaining_bytes_as_vector() -> std::vector<char> {
-    return {current_iterator(), std::end(byte_data)};
-  }
-
-  auto get_remaining_bytes_as_span() -> std::span<char> {
-    return {current_iterator(), size_remaining()};
-  }
-
-  [[nodiscard]] auto invalid() const -> bool {
-    return !byte_counter.has_value();
-  }
-};
-
 // START object_buffer_v2
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
@@ -997,11 +1028,14 @@ auto operation_specific_read_object_from_buffer(
 // START object_buffer_v2_copy uses object_buffer_v2
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class ManipulateBytesLambda>
-auto read_object_from_buffer(
-    ByteVectorWithCounter buffer_with_input_bytes,
+          class ManipulateBytesLambda, class ByteContainerOrViewType>
+constexpr auto read_object_from_buffer(
+    ByteContainerOrViewType &buffer_with_input_bytes,
     ManipulateBytesLambda &&
         manipulate_bytes_from_file_before_writing_to_instance_lambda) -> Type {
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
   PICKLEJAR_CONCEPT(
       (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
@@ -1080,12 +1114,16 @@ template <class Type,
 // and returns a reference therefore only generating a move
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class ConstructorGeneratorLambda, class ManipulateBytesLambda>
-[[nodiscard]] auto read_object_from_buffer(
-    ByteVectorWithCounter buffer_with_input_bytes,
+          class ConstructorGeneratorLambda, class ManipulateBytesLambda,
+          class ByteContainerOrViewType>
+[[nodiscard]] constexpr auto read_object_from_buffer(
+    ByteContainerOrViewType &buffer_with_input_bytes,
     ManipulateBytesLambda
         &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
     ConstructorGeneratorLambda &&constructor_generator_lambda) -> Type {
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
   PICKLEJAR_CONCEPT(
       (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
@@ -1134,10 +1172,14 @@ template <class Type,
 // BUFFER VERSION taken from OPERATION VERSION
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class Container>
+          class Container, class ByteContainerOrViewType>
 [[nodiscard]] constexpr auto read_vector_from_buffer(
-    Container &vector_input_data, ByteVectorWithCounter buffer_with_input_bytes)
+    Container &vector_input_data,
+    ByteContainerOrViewType &buffer_with_input_bytes)
     -> picklejar::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
   PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
   PICKLEJAR_CONCEPT((ContainerHasPushBack<Container, Type>),
                     CONTAINERWITHHASPUSHBACK_MSG);
@@ -1169,13 +1211,17 @@ template <class Type,
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
           class Container, class ConstructorGeneratorLambda,
-          class ManipulateBytesLambda>
+          class ManipulateBytesLambda, class ByteContainerOrViewType>
 [[nodiscard]] constexpr auto read_vector_from_buffer(
-    Container &vector_input_data, ByteVectorWithCounter buffer_with_input_bytes,
+    Container &vector_input_data,
+    ByteContainerOrViewType &buffer_with_input_bytes,
     ManipulateBytesLambda
         &&manipulate_bytes_from_file_before_writing_to_instance_lambda,
     ConstructorGeneratorLambda &&constructor_generator_lambda)
     -> picklejar::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
   PICKLEJAR_CONCEPT(
       (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
@@ -1284,14 +1330,18 @@ template <class Type,
 }
 // END stream_v2 uses stream_v3
 // START buffer_v2 uses buffer_v3
-template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class Container, class ManipulateBytesLambda>
+template <
+    class Type, class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
+    class Container, class ManipulateBytesLambda, class ByteContainerOrViewType>
 [[nodiscard]] constexpr auto read_vector_from_buffer(
-    Container &vector_input_data, ByteVectorWithCounter buffer_with_input_bytes,
+    Container &vector_input_data,
+    ByteContainerOrViewType &buffer_with_input_bytes,
     ManipulateBytesLambda
         &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
     -> picklejar::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
   PICKLEJAR_CONCEPT(
       (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
@@ -1776,31 +1826,29 @@ auto deep_copy_object_to_buffer(const Type &object, const size_t object_size,
 }
 // START object_buffer_v1_copy uses object_buffer_v1
 template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
-[[nodiscard]] auto read_object_from_buffer(
-    ByteVectorWithCounter &buffer_with_input_bytes) -> std::optional<Type> {
-  PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
-  return buffer_with_input_bytes.read<Type, ManagedAlignedCopy>();
-}
-// convert version
-template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          SequentialContainerOfChar CharContainer>
-[[nodiscard]] auto read_object_from_buffer(CharContainer char_container)
-    -> std::optional<Type> {
+          class ByteContainerOrViewType>
+[[nodiscard]] constexpr auto read_object_from_buffer(
+    ByteContainerOrViewType &buffer_with_input_bytes) -> std::optional<Type> {
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
   PICKLEJAR_CONCEPT(TriviallyCopiable<Type>, TRIVIALLYCOPIABLE_MSG);
-  ByteVectorWithCounter buffer_with_input_bytes{char_container};
-  return buffer_with_input_bytes.read<Type, ManagedAlignedCopy>();
+  return buffer_with_input_bytes.template read<Type, ManagedAlignedCopy>();
 }
+
 // END object_buffer_v1_copy uses object_buffer_v1
 
 template <size_t Version = 0, class Container,
           typename Type = typename Container::value_type,
-          class VectorInsertElementLambda>
+          class VectorInsertElementLambda, class ByteContainerOrViewType>
 auto deep_read_vector_from_buffer(
-    Container &result, ByteVectorWithCounter vector_byte_buffer,
+    Container &result, ByteContainerOrViewType &vector_byte_buffer,
     VectorInsertElementLambda &&vector_insert_element_lambda)
     -> picklejar::optional<Container> {
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
   PICKLEJAR_CONCEPT(
       (PickleJarVectorInsertElementLambdaRequirements<VectorInsertElementLambda,
                                                       Container>),
@@ -1851,8 +1899,12 @@ inline auto read_version_from_file(const std::string file_name)
   std::ifstream ifstream_input_file(file_name);
   return picklejar::read_object_from_stream<size_t>(ifstream_input_file);
 }
-inline auto read_version_from_buffer(
-    ByteVectorWithCounter byte_vector_with_counter) -> std::optional<size_t> {
+template <class ByteContainerOrViewType>
+auto read_version_from_buffer(ByteContainerOrViewType &byte_vector_with_counter)
+    -> std::optional<size_t> {
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
   return picklejar::read_object_from_buffer<size_t>(byte_vector_with_counter);
 }
 

@@ -75,3 +75,8 @@ add_executable(PickleJarOptionalExperimentTests optional_return_tests.cpp)
 target_link_libraries(PickleJarOptionalExperimentTests PRIVATE PickleJar Hexer ut)
 target_compile_features(PickleJarOptionalExperimentTests PRIVATE cxx_std_20)
 target_compile_options(PickleJarOptionalExperimentTests PUBLIC ${EXTRA_WARNING_FLAGS})
+
+add_executable(PickleJarVersioningExample2WithTests versioning_example_2_with_tests.cpp)
+target_compile_features(PickleJarVersioningExample2WithTests PRIVATE cxx_std_20)
+target_compile_options(PickleJarVersioningExample2WithTests PUBLIC ${EXTRA_WARNING_FLAGS})
+target_link_libraries(PickleJarVersioningExample2WithTests PRIVATE PickleJar Hexer ut)

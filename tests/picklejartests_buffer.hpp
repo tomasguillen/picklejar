@@ -23,7 +23,7 @@
 
 using namespace boost::ut;
 
-void picklejartests_buffer() {
+inline void picklejartests_buffer() {
   // namespace u = boost::ut;
   // using namespace boost::ut::literals;
   // using namespace boost::ut::operators::terse;
@@ -96,9 +96,11 @@ void picklejartests_buffer() {
     auto buffer_vector_copy_test = write_function(struct_vec);
     std::vector<TestStructure> buff_vec{};
     buff_vec.reserve(struct_vec.size());
+    auto byte_vector_with_counter = picklejar::ByteVectorWithCounter{
+        std::begin(buffer_vector_copy_test), std::end(buffer_vector_copy_test)};
 
     auto optional_read_vector =
-        read_function(buff_vec, buffer_vector_copy_test);
+        read_function(buff_vec, byte_vector_with_counter);
 
     expect(true == optional_read_vector.has_value())
         << test_id << " "
@@ -141,11 +143,14 @@ void picklejartests_buffer() {
     auto struct_vec = prepare_struct_vector_for_tests();
 
     auto buffer_vector_copy_test = write_function(struct_vec);
+    auto byte_vector_with_counter = picklejar::ByteVectorWithCounter{
+        std::begin(buffer_vector_copy_test), std::end(buffer_vector_copy_test)};
+
     std::vector<TrivialStructure> buff_vec{};
     buff_vec.reserve(struct_vec.size());
 
     auto optional_read_vector =
-        read_function(buff_vec, buffer_vector_copy_test);
+        read_function(buff_vec, byte_vector_with_counter);
 
     expect(true == optional_read_vector.has_value())
         << test_id << " "
@@ -346,8 +351,10 @@ void picklejartests_buffer() {
   "object_buffer_v1_innerstruct"_test = [&] {
     TrivialStructure test_object{};
     auto test_buffer{picklejar::write_object_to_buffer(test_object)};
+    auto byte_vector_with_counter = picklejar::ByteSpanWithCounter{
+        std::begin(test_buffer), test_buffer.size()};
     auto recovered_object =
-        picklejar::read_object_from_buffer<TrivialStructure>(test_buffer);
+        picklejar::read_object_from_buffer<TrivialStructure>(byte_vector_with_counter);
     expect(true == (recovered_object == test_object))
         << "test object not equal to recovered object";
   };
@@ -364,18 +371,22 @@ void picklejartests_buffer() {
   "object_buffer_v3"_test = [&] {
     const TestStructure test_object{};
     auto test_buffer{picklejar::write_object_to_buffer(test_object)};
+    auto byte_vector_with_counter = picklejar::ByteVectorWithCounter{
+        std::begin(test_buffer), std::end(test_buffer)};
     auto recovered_object = picklejar::read_object_from_buffer<TestStructure>(
-        test_buffer, preserve_constructed_id_in_our_new_copy,
+        byte_vector_with_counter, preserve_constructed_id_in_our_new_copy,
         constructor_generator_one_param);
     test_teststructure("buffer_v3_", recovered_object, test_object,
                        startswith_firstconstructor_expected_modification);
+    byte_vector_with_counter.set_counter(0);
     auto recovered_object_2 = picklejar::read_object_from_buffer<TestStructure>(
-        test_buffer, preserve_constructed_id_in_our_new_copy,
+        byte_vector_with_counter, preserve_constructed_id_in_our_new_copy,
         constructor_generator_two_params);
     test_teststructure("buffer_v3_", recovered_object_2, test_object,
                        startswith_secondconstructor_expected_modification);
+    byte_vector_with_counter.set_counter(0);
     auto recovered_object_3 = picklejar::read_object_from_buffer<TestStructure>(
-        test_buffer,
+        byte_vector_with_counter,
         preserve_constructed_id_in_our_new_copy_and_modify_it,
         constructor_generator_two_params);
     test_teststructure("buffer_v3_", recovered_object_3, test_object,
@@ -385,14 +396,17 @@ void picklejartests_buffer() {
   "object_buffer_v2"_test = [&] {
     const TestStructure test_object{};
     auto test_buffer{picklejar::write_object_to_buffer(test_object)};
+    auto byte_vector_with_counter = picklejar::ByteVectorWithCounter{
+        std::begin(test_buffer), std::end(test_buffer)};
+
     TestStructure recovered_object =
         picklejar::read_object_from_buffer<TestStructure>(
-            test_buffer,
-            preserve_constructed_id_in_our_new_copy);
+            byte_vector_with_counter, preserve_constructed_id_in_our_new_copy);
     test_teststructure("buffer_v2_", recovered_object, test_object,
                        startswith_default_expected_modification);
+    byte_vector_with_counter.set_counter(0);
     auto recovered_object_2 = picklejar::read_object_from_buffer<TestStructure>(
-        test_buffer,
+        byte_vector_with_counter,
         preserve_constructed_id_in_our_new_copy_and_modify_it);
     test_teststructure("buffer_v2_", recovered_object_2, test_object,
                        startswith_modified_expected_modification);
@@ -402,8 +416,11 @@ void picklejartests_buffer() {
   "write_object_to_buffer_array_version"_test = [&] {
     const TrivialStructure test_object{};
     auto test_buffer{picklejar::write_object_to_buffer_array(test_object)};
+    auto byte_vector_with_counter = picklejar::ByteSpanWithCounter{
+        std::begin(test_buffer), test_buffer.size()};
     auto recovered_object =
-        picklejar::read_object_from_buffer<TrivialStructure>(test_buffer);
+        picklejar::read_object_from_buffer<TrivialStructure>(
+            byte_vector_with_counter);
     expect(true == (recovered_object == test_object))
         << "test object not equal to recovered object";
   };
