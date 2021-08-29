@@ -19,8 +19,6 @@
 */
 
 #include <map>
-#include <memory>
-#include <numeric>
 #include <picklejar.hpp>
 
 template <class IntBasedString>
@@ -158,13 +156,12 @@ void step2_v2_write_function(auto &result_changed) {
           result_changed, "versioning_example.data",
           [](const IntBasedString &object) {
             // we return the total size of elements we are writing into the file
-            return /*our int id goes first*/ sizeof(IntBasedString::id) +
-                   /*then the size of our string*/
-                   sizeof(object.rand_str_id.size()) +
-                   /*followed by our string data size*/
-                   object.rand_str_id.size() +
-                   /*followed by the size of our new member*/
-                   object.new_important_pair_vector.size() * sizeof(New_Pair);
+            return /*our int id goes first*/
+                picklejar::sizeof_unversioned(object.id) +
+                /*then the size of our string*/
+                picklejar::sizeof_unversioned(object.rand_str_id) +
+                /*followed by the size of our vector of pairs*/
+                picklejar::sizeof_unversioned(object.new_important_pair_vector);
           },
           [](auto &_ofs_output_file, const IntBasedString &object,
              size_t element_size) {
@@ -175,26 +172,28 @@ void step2_v2_write_function(auto &result_changed) {
                                                    _ofs_output_file)) {
               return false;
             }
-            // write the actual size of our string into the file
+
+            /* the write_string_to_stream is equivalent to:
+            // First) write the actual size of our string into the file
             if (!picklejar::write_object_to_stream(object.rand_str_id.size(),
                                                    _ofs_output_file)) {
               return false;
             }
-            // next we write the string data into the file
+            // Next) we write the string data into the file
             if (!picklejar::basic_stream_write(_ofs_output_file,
                                                object.rand_str_id.data(),
                                                object.rand_str_id.size()))
               return false;
-            auto size_calculation = _ofs_output_file.tellp();
+            */
+            // write the string into the file
+            if (!picklejar::write_string_to_stream(object.rand_str_id,
+                                                   _ofs_output_file)) {
+              return false;
+            }
             // and then we write the 'new_important_pair_vector' into the file
             if (!picklejar::write_vector_to_stream(
                     object.new_important_pair_vector, _ofs_output_file))
               return false;
-            auto size_of_pair_type = sizeof(New_Pair);
-            // we assert to make sure we have calculated the size of the vector
-            // we are writing correctly
-            assert(size_t(_ofs_output_file.tellp() - size_calculation) ==
-                   object.new_important_pair_vector.size() * size_of_pair_type);
             return true;
           })) {
     std::puts("WRITE_SUCCESS_V2");

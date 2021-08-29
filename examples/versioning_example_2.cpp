@@ -19,7 +19,6 @@
 */
 
 #include <map>
-#include <numeric>
 #include <picklejar.hpp>
 
 template <class IntBasedString>
