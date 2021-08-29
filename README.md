@@ -1,19 +1,63 @@
 # C++ Pickle Jar
 Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers. A simple versioning system prevents you from making common mistakes and it allows you to update the objects stored after the fact.
 
-## Versioning System
-Only the deep copy/read API is setup to be able to write versioned objects and vectors, you can see a complete example that uses all the capabilites of this library in *examples/versioning_example.cpp* and *examples/versioning_example_2.cpp*, the second is a copy of the first with one step and they have very similar usage.
-
-If you are trying to store non trivial types, I highly recommend you compile the versioning examples since they pretty much show the whole point of this library and you should try to modify the code to store and write the object you are interested in from the IntBasedString struct in those files.
-
-
 ## Two APIs:
 * One for deep copying/reading with versioning and byte size redundancy and,
 * A lower level API that just writes the bytes of the object with special read functions to account for complex object caveats
 
 ## Highlights:
 1. Both APIs work with streams, files and arbitrary buffers of bytes.
-2. You can mix both APIs to have redundancy and speed where is needed.
+2. You can mix both APIs to have redundancy and speed where needed.
+
+## Versioning System
+Only the deep copy/read API is setup to be able to write versioned objects and vectors, you can see a complete example that uses all the capabilites of this library in *examples/versioning_example.cpp* and *examples/versioning_example_2.cpp*, the second is a copy of the first with one step and they have very similar usage.
+
+If you are trying to store non trivial types, I highly recommend you compile the versioning examples since they pretty much show the whole point of this library and you may want to modify the code to store and write the object you are interested in from the IntBasedString struct in those files. If you want to have a nice unit test already setup for this, you can find the same versioning example setup with a thirdparty unit test library under the test directory, it would be easy to change it to a different test framework and it's always nice to have tests setup for this because it allows to detect any changes that may need to be fixed in case anything outside your control changes (standard or compiler changes that can't be anticipated).
+
+###### The versioning examples are located under the *examples* directory and work like this:
+Run the program from the command line: *./versioning_example step1*, there are a total of 3 steps for *./versioning_example* and 4 steps for *./versioning_example_2*. The only difference between these two is step4.
+
+* step1) Assume you have written a program that uses the picklejar library to save/load a vector of 'IntBasedString' objects into/from a file.
+
+* step2) After releasing the program, you realize that you need to make some changes to 'IntBasedString'. Your program now needs to accept 2 different versions of the file: v1 that was written in step 1, and a new version that takes the changes you have done in step2 into account.
+
+* step3) Assume you have gone through this process a few times or some time has passed and you no longer want to support the version in step1 because everybody should have upgraded by now, in step3 you drop support of version1 by showing an error message if the version of the file is older than version 2.
+
+* step4) Similar to step2, we change our IntBasedString to contain a map<string,trivial_object>, once again we have to accept 2 different versions, v2 and our new v4. Map requires using deep copy because it's not sequential.
+
+If you run step1, followed by step3 the program will output the following message:
+``Data file older than version 2 detected, this program only accepts data files version 2 or higher.``
+
+If you run step1, then step2. The program will first try to read the file with it's *version2 read function*, but it will fail and then try with it's *version1 to version2 conversion function* and succeed:
+```
+Attempting to read vector from file with 'step2_v2_read_function'
+PICKLEJAR_VERBOSE_MODE: Non-critical condition: `optional_version.value() == Version` failed in /mnt/1TUnifiedExtra/lnLinkedSystemFilesAndSoundLibrariesForMusicProduction/ln_home_tom_builds/benchmark/picklejar/examples/picklejar/include/picklejar.hpp line 1593: PICKLEJAR_RUNTIME_MESSAGE: The version from the file (1) doesn't match with the Version of the function (2)
+READ_ERROR_V2
+Failed, Attempting to use 'step2_translate_v1_to_v2' as a Fallback
+```
+By default PickleJar is configured in verbose mode and it will output a message to std::cerr, as you can see the version of the file is *version 1* and the version of the *step2 read function* is version 2. So it will fail to read it. You can disable verbose mode by setting **PICKLEJAR_ENABLE_VERBOSE_MODE** macro to 0 before you include the file or from the command line or with cmake:
+```cmake
+target_compile_definitions(cmake_target_name PRIVATE PICKLEJAR_ENABLE_VERBOSE_MODE=0)
+```
+Only non-critical warnings will be disabled by this setting.
+
+If you run step1, followed by step2, and then followed by step2 again, in the last run, the program will no longer have to convert from version 1 to version 2 and you won't see that warning message:
+```
+Attempting to read vector from file with 'step2_v2_read_function'
+... Constructor Output ...
+READ_SUCCESS_V2
+```
+
+If you run step1, followed by step2, and then followed by step3 it will read everything just fine, it will only show an error if you run step1 and then step3 because the version won't match as seen previously.
+
+If you run step1, followed by step2, and then followed by step4 (step3 doesn't matter here), you will get behavior similar to what happens with step2 but with the version 2 being translated to version 4. If you then try to run step2 you will get 2 warnings, one for the *version 2 read function* and another for the *version 1 to version 2 conversion function* which is just what was intended.
+
+
+###### The versioning unit tests are located in *tests/versioning_example_2_with_tests.cpp*
+It runs all the steps in the order they are meant to be tested. It can be used as a template to create a unit tests for your own structures that you want to save and load to a file. I recommend to add a new test every time you make lasting changes to the saved structs you are planning to release.
+
+
+
 
 ## How to use PickleJar to store and recall Trivial Types (ints, floats, doubles, simple structs and classes, etc)
 This is how to write a vector of ints to a file named "example1.data":
@@ -392,6 +436,7 @@ In this case we are finding the byte offset of the member UITransposeFilter::id 
 | Content Cell  | Content Cell  |
 
 NON TRIVIAL EXAMPLES Section
+
 ## GCC Compiler Flag caveat:
 If compiling with GCC and have -Werror you may want to turn off -Wno-class-memaccess if it gives a warning but should only give warning when using picklejar with non-trivially-copiable objects
 

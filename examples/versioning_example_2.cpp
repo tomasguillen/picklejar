@@ -157,13 +157,12 @@ void step2_v2_write_function(auto &result_changed) {
           result_changed, "versioning_example.data",
           [](const IntBasedString &object) {
             // we return the total size of elements we are writing into the file
-            return /*our int id goes first*/ sizeof(IntBasedString::id) +
-                   /*then the size of our string*/
-                   sizeof(object.rand_str_id.size()) +
-                   /*followed by our string data size*/
-                   object.rand_str_id.size() +
-                   /*followed by the size of our new member*/
-                   object.new_important_pair_vector.size() * sizeof(New_Pair);
+            return /*our int id goes first*/
+                picklejar::sizeof_unversioned(object.id) +
+                /*then the size of our string*/
+                picklejar::sizeof_unversioned(object.rand_str_id) +
+                /*followed by the size of our vector of pairs*/
+                picklejar::sizeof_unversioned(object.new_important_pair_vector);
           },
           [](auto &_ofs_output_file, const IntBasedString &object,
              size_t element_size) {
@@ -174,26 +173,28 @@ void step2_v2_write_function(auto &result_changed) {
                                                    _ofs_output_file)) {
               return false;
             }
-            // write the actual size of our string into the file
+
+            /* the write_string_to_stream is equivalent to:
+            // First) write the actual size of our string into the file
             if (!picklejar::write_object_to_stream(object.rand_str_id.size(),
                                                    _ofs_output_file)) {
               return false;
             }
-            // next we write the string data into the file
+            // Next) we write the string data into the file
             if (!picklejar::basic_stream_write(_ofs_output_file,
                                                object.rand_str_id.data(),
                                                object.rand_str_id.size()))
               return false;
-            auto size_calculation = _ofs_output_file.tellp();
+            */
+            // write the string into the file
+            if (!picklejar::write_string_to_stream(object.rand_str_id,
+                                                   _ofs_output_file)) {
+              return false;
+            }
             // and then we write the 'new_important_pair_vector' into the file
             if (!picklejar::write_vector_to_stream(
                     object.new_important_pair_vector, _ofs_output_file))
               return false;
-            auto size_of_pair_type = sizeof(New_Pair);
-            // we assert to make sure we have calculated the size of the vector
-            // we are writing correctly
-            assert(size_t(_ofs_output_file.tellp() - size_calculation) ==
-                   object.new_important_pair_vector.size() * size_of_pair_type);
             return true;
           })) {
     std::puts("WRITE_SUCCESS_V2");
@@ -450,23 +451,16 @@ void step4_v4_write_function(auto &result_changed) {
   if (picklejar::deep_copy_vector_to_file<4>(
           result_changed, "versioning_example.data",
           [](const IntBasedString &object) {
-            size_t size = std::transform_reduce(
-                std::begin(object.new_map), std::end(object.new_map), size_t{0},
-                [](auto sum1, auto sum2) { return sum1 + sum2; },
-                [](auto &map_elem) {
-                  return picklejar::versioned_size<0>() + sizeof(size_t) +
-                         map_elem.first.size() + sizeof(map_elem.second);
-                });
             // we return the total size of elements we are writing into the file
-            return /*our int id goes first*/ sizeof(IntBasedString::id) +
-                   /*then the size of our string*/
-                   sizeof(object.rand_str_id.size()) +
-                   /*followed by how many characters our string has*/
-                   object.rand_str_id.size() +
-                   /*followed by the size of our new member*/
-                   object.new_important_pair_vector.size() * sizeof(New_Pair) +
-                   /*followed by our new_map size*/
-                   picklejar::versioned_size<1>() + size;
+            return /*our int id goes first*/
+                picklejar::sizeof_unversioned(object.id) +
+                /*then the size of our string*/
+                picklejar::sizeof_unversioned(object.rand_str_id) +
+                /*followed by the size of our vector of pairs*/
+                picklejar::sizeof_unversioned(
+                    object.new_important_pair_vector) +
+                /*followed by our new_map size*/
+                picklejar::sizeof_versioned<1>(object.new_map);
           },
           [](auto &_ofs_output_file, const IntBasedString &object,
              size_t element_size) {
@@ -477,22 +471,17 @@ void step4_v4_write_function(auto &result_changed) {
                                                    _ofs_output_file)) {
               return false;
             }
-            // write the actual size of our string into the file
-            if (!picklejar::write_object_to_stream(object.rand_str_id.size(),
+            // write the string into the file
+            if (!picklejar::write_string_to_stream(object.rand_str_id,
                                                    _ofs_output_file)) {
               return false;
             }
-            // next we write the string data into the file
-            if (!picklejar::basic_stream_write(_ofs_output_file,
-                                               object.rand_str_id.data(),
-                                               object.rand_str_id.size()))
-              return false;
 
             picklejar::deep_copy_vector_to_stream<1>(
                 object.new_map, _ofs_output_file,
                 [](auto &map_elem) {
-                  return sizeof(size_t) + map_elem.first.size() +
-                         sizeof(map_elem.second);
+                  return picklejar::sizeof_unversioned(map_elem.first) +
+                         picklejar::sizeof_unversioned(map_elem.second);
                 },
                 [](auto &_map_ofs_output_file, auto &map_elem,
                    size_t map_element_size) {
@@ -699,17 +688,19 @@ void step4() {
 auto main(int argc, char *argv[]) -> int {
   if (argc <= 1) {
     std::puts(
-        "\nPickleJar Versioning Example 2\nUsage: ./versioning_example stepN\n "
+        "\nPickleJar Versioning Example 2\nUsage: ./versioning_example_2 "
+        "stepN\n "
         "There are 4 steps meant to be be called one after the other that "
         "showcase the following example: \n step1) Assume you have written a "
         "program that uses the picklejar library to save/load a vector of "
         "'IntBasedString' objects into/from a file.\n step2) After releasing "
-        "the program realize that you need to make some changes to "
+        "the program, you realize that you need to make some changes to "
         "'IntBasedString', your program now needs to accept 2 different "
         "versions of the file: v1 that was written in step 1, and a new "
         "version that takes the changes you have done in step2 into "
         "account.\n "
-        "step3) Assume you have gone through this a few times or some time "
+        "step3) Assume you have gone through this process a few times or some "
+        "time "
         "has "
         "passed and you no longer want to support the version in step1 "
         "because "

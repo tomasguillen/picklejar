@@ -5,6 +5,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <span>
 #include <string>
@@ -14,7 +15,7 @@
 
 // if you want to use this header file only and not have to include the
 // type_safe thirdparty library you can define DISABLE_TYPESAFE_OPTIONAL from
-// the console or your header file or cmake.
+// the command line or your header file or cmake.
 // The implications are that for functions that take an "in" value
 // for example:
 // auto read_vector_from_stream(Container &vector_input_data,
@@ -557,6 +558,10 @@ concept ContainerHasDataAndSize = requires(C a) {
 };
 template <typename C>
 concept TriviallyCopiable = std::is_trivially_copyable_v<C>;
+
+template <typename C>
+concept CanBeCopiedEasily = std::is_standard_layout_v<C>;
+
 template <typename C>
 concept DefaultConstructible = std::is_default_constructible_v<C>;
 
@@ -574,8 +579,9 @@ concept DefaultConstructible = std::is_default_constructible_v<C>;
   "Use of "                                                                    \
   "the other versions of this function may be needed and then a call to "      \
   "'preserve_blank_instance_member' and 'copy_new_bytes_to_instance' in the "  \
-  "lambda to fix non trivially copiable members. SEE NON TRIVIAL EXAMPLES "    \
-  "section in the readme file"
+  "lambda to fix non trivially copiable members. SEE DEEP COPY VERSIONING "    \
+  "EXAMPLES "                                                                  \
+  "versioning section in the readme file"
 
 #define DEFAULTCONSTRUCTIBLE_MSG                                              \
   "PICKLEJAR_HELP: The object passed to picklejar is not default "            \
@@ -1748,8 +1754,8 @@ template <size_t Version = 0, class BufferOrStreamObject,
                                           const size_t) =
               picklejar::basic_stream_read,
           class ByteBufferLambda>
-auto deep_read_object_to_file(const std::string file_name,
-                              ByteBufferLambda &&byte_buffer_lambda) -> bool {
+auto deep_read_object_from_file(const std::string file_name,
+                                ByteBufferLambda &&byte_buffer_lambda) -> bool {
   PICKLEJAR_CONCEPT((PickleJarByteBufferLambdaRequirements<ByteBufferLambda>),
                     BYTEBUFFERLAMBDAREQUIREMENTS_MSG);
   std::ifstream ifs_input_file(file_name);
@@ -1890,6 +1896,15 @@ template <class PointerType>
   return ofs_output_file.good();
 }
 
+template <class PointerType>
+[[nodiscard]] auto basic_buffer_write(
+    ByteVectorWithCounter &byte_vector_with_counter,
+    PointerType *destination_to_copy_to, const size_t size_to_read) -> bool {
+  byte_vector_with_counter.write(destination_to_copy_to,
+                                 std::streamsize(size_to_read));  // NOLINT
+  return true;
+}
+
 inline auto read_version_from_stream(std::ifstream &ifstream_input_file)
     -> std::optional<size_t> {
   return picklejar::read_object_from_stream<size_t>(ifstream_input_file);
@@ -1918,7 +1933,133 @@ constexpr auto versioned_size() -> size_t {
     return sizeof(size_t);
   }
 }
-//  auto deep_copy_string_to_stream
+
+template <typename C>
+concept IsIterable = requires(C c) {
+  { c.cbegin() } -> std::same_as<typename C::const_iterator>;
+  { c.cend() } -> std::same_as<typename C::const_iterator>;
+  { c.size() } -> std::same_as<size_t>;
+};
+template <typename C>
+concept NotIterable = requires(C c) {
+  requires !IsIterable<C>;
+};
+
+template <typename C>
+concept IsMapType = requires(C c) {
+  requires !std::same_as<typename C::key_type, void>;
+  requires !std::same_as<typename C::mapped_type, void>;
+};
+
+template <size_t Version = 0, NotIterable Object>
+constexpr auto sizeof_versioned(Object object) -> size_t {
+  return picklejar::versioned_size<Version>() + sizeof(object);
+}
+template <size_t Version = 0, IsIterable Container>
+constexpr auto sizeof_versioned(Container container) -> size_t {
+  if constexpr (IsMapType<Container>) {
+    if constexpr (std::same_as<std::string, typename Container::key_type>) {
+      // if you get a trivially_copiable warning here is because when I wrote
+      // this I assumed the value_type of the map would be trivially copiable,
+      // if that is not the case you will have to copy this function and make it
+      // return the size of what you are writting
+      PICKLEJAR_CONCEPT(CanBeCopiedEasily<typename Container::value_type>,
+                        TRIVIALLYCOPIABLE_MSG);
+      return versioned_size<Version>() +
+             std::transform_reduce(
+                 std::cbegin(container), std::cend(container), size_t{0},
+                 std::plus<>(), [](auto &map_elem) {
+                   return versioned_size<0>() + sizeof(size_t) +
+                          map_elem.first.size() + sizeof(map_elem.second);
+                 });
+    } else {
+      PICKLEJAR_CONCEPT(CanBeCopiedEasily<typename Container::key_type>,
+                        TRIVIALLYCOPIABLE_MSG);
+      PICKLEJAR_CONCEPT(CanBeCopiedEasily<typename Container::value_type>,
+                        TRIVIALLYCOPIABLE_MSG);
+      return versioned_size<Version>() +
+             std::transform_reduce(
+                 std::cbegin(container), std::cend(container), size_t{0},
+                 std::plus<>(), [](auto &map_elem) {
+                   return versioned_size<0>() + sizeof(map_elem.first) +
+                          sizeof(map_elem.second);
+                 });
+    }
+  } else {
+    PICKLEJAR_CONCEPT(CanBeCopiedEasily<typename Container::value_type>,
+                      TRIVIALLYCOPIABLE_MSG);
+    return picklejar::versioned_size<Version>() +
+           (container.size() *
+            (versioned_size<0>() + sizeof(typename Container::value_type)));
+  }
+}
+
+template <class BufferOrStreamObject>
+auto string_write_generic(const std::string string_to_write,
+                          BufferOrStreamObject &buffer_or_stream_object)
+    -> bool {
+  if constexpr (std::same_as<BufferOrStreamObject, std::ofstream>) {
+    // write the actual size of our string into the file
+    if (!write_object_to_stream(string_to_write.size(),
+                                buffer_or_stream_object))
+      return false;
+
+    // next we write the string data into the file
+    if (!basic_stream_write(buffer_or_stream_object, string_to_write.data(),
+                            string_to_write.size()))
+      return false;
+  } else {
+    // write the actual size of our string into the file
+    if (!write_object_to_buffer(string_to_write.size(),
+                                buffer_or_stream_object))
+      return false;
+
+    // next we write the string data into the file
+    if (!basic_buffer_write(buffer_or_stream_object, string_to_write.data(),
+                            string_to_write.size()))
+      return false;
+  }
+  return true;
+}
+
+inline auto write_string_to_stream(const std::string string_to_write,
+                                   std::ofstream &_ofs_output_file) -> bool {
+  return string_write_generic(string_to_write, _ofs_output_file);
+}
+inline auto write_string_to_file(const std::string string_to_write,
+                                 const std::string file_name) -> bool {
+  std::ofstream _ofs_output_file(file_name);
+  return string_write_generic(string_to_write, _ofs_output_file);
+}
+
+inline auto write_string_to_buffer(
+    const std::string string_to_write,
+    ByteVectorWithCounter &byte_vector_with_counter) -> bool {
+  return string_write_generic(string_to_write, byte_vector_with_counter);
+}
+
+template <NotIterable Object>
+constexpr auto sizeof_unversioned(Object object) -> size_t {
+  PICKLEJAR_CONCEPT(CanBeCopiedEasily<Object>, TRIVIALLYCOPIABLE_MSG);
+  return sizeof(Object);
+}
+
+template <IsIterable Container>
+constexpr auto sizeof_unversioned(Container container) -> size_t {
+  static_assert(
+      !IsMapType<Container>,
+      "PICKLEJAR_HELP: You need to use deep_copy functions for map types");
+  PICKLEJAR_CONCEPT(CanBeCopiedEasily<typename Container::value_type>,
+                    TRIVIALLYCOPIABLE_MSG);
+  return container.size() * sizeof(typename Container::value_type);
+}
+
+inline auto sizeof_unversioned(std::string string_to_get_size_of) -> size_t {
+  return /*count bytes to store result of .size() */
+      sizeof(size_t) +
+      /*followed by how many characters our string has*/
+      string_to_get_size_of.size();
+}
 
 }  // namespace picklejar
 #endif

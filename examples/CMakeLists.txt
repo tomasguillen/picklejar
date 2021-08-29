@@ -70,12 +70,18 @@ target_link_libraries(PickleJarExamples PRIVATE PickleJar)
 target_compile_options(PickleJarExamples PUBLIC ${EXTRA_WARNING_FLAGS})
 
 
-add_executable(PickleJarVersioningExample versioning_example.cpp)
-target_compile_features(PickleJarVersioningExample PRIVATE cxx_std_20)
-target_compile_options(PickleJarVersioningExample PUBLIC ${EXTRA_WARNING_FLAGS})
-target_link_libraries(PickleJarVersioningExample PRIVATE PickleJar)
+add_executable(versioning_example versioning_example.cpp)
+target_compile_features(versioning_example PRIVATE cxx_std_20)
+target_compile_options(versioning_example PUBLIC ${EXTRA_WARNING_FLAGS})
+target_link_libraries(versioning_example PRIVATE PickleJar)
 
-add_executable(PickleJarVersioningExample2 versioning_example_2.cpp)
-target_compile_features(PickleJarVersioningExample2 PRIVATE cxx_std_20)
-target_compile_options(PickleJarVersioningExample2 PUBLIC ${EXTRA_WARNING_FLAGS})
-target_link_libraries(PickleJarVersioningExample2 PRIVATE PickleJar)
+add_executable(versioning_example_2 versioning_example_2.cpp)
+target_compile_features(versioning_example_2 PRIVATE cxx_std_20)
+target_compile_options(versioning_example_2 PUBLIC ${EXTRA_WARNING_FLAGS})
+target_link_libraries(versioning_example_2 PRIVATE PickleJar)
+
+add_executable(PickleJarBufferExample buffer_example.cpp)
+target_compile_features(PickleJarBufferExample PRIVATE cxx_std_20)
+target_compile_options(PickleJarBufferExample PUBLIC ${EXTRA_WARNING_FLAGS})
+target_link_libraries(PickleJarBufferExample PRIVATE PickleJar)
+

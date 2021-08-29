@@ -375,18 +375,16 @@ auto main(int argc, char *argv[]) -> int {
         "showcase the following example: \n step1) Assume you have written a "
         "program that uses the picklejar library to save/load a vector of "
         "'IntBasedString' objects into/from a file.\n step2) After releasing "
-        "the program realize that you need to make some changes to "
+        "the program, you realize that you need to make some changes to "
         "'IntBasedString', your program now needs to accept 2 different "
         "versions of the file: v1 that was written in step 1, and a new "
         "version that takes the changes you have done in step2 into "
         "account.\n "
-        "step3) Assume you have gone through this a few times or some time "
-        "has "
-        "passed and you no longer want to support the version in step1 "
-        "because "
-        "everybody should have upgraded by now, in step3 you drop support of "
-        "version1 by showing an error message if the version of the file is "
-        "older than version 2.");
+        "step3) Assume you have gone through this process a few times or some "
+        "time has passed and you no longer want to support the version in "
+        "step1 because everybody should have upgraded by now, in step3 you "
+        "drop support of version1 by showing an error message if the version "
+        "of the file is older than version 2.");
     return EXIT_FAILURE;
   }
   auto step = std::string(argv[1]);
