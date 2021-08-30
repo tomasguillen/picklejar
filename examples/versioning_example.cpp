@@ -18,7 +18,6 @@
 
 */
 
-#include <map>
 #include <picklejar.hpp>
 
 template <class IntBasedString>
@@ -80,6 +79,7 @@ static auto step1_read_from_file(Container &read_result)
 }
 
 static void step1() {
+  // first we define the structure we want to store
   struct IntBasedString {
     int id;
     std::string rand_str_id;
@@ -92,14 +92,15 @@ static void step1() {
     explicit IntBasedString(int _id, const std::string _pretty_id)
         : id(_id), rand_str_id(_pretty_id) {}
   };
+  // then we generate 10 elements using our (int) constructor
   std::vector<IntBasedString> intbased_vec(10);
   std::generate(std::begin(intbased_vec), std::end(intbased_vec),
                 [count = 0]() mutable { return IntBasedString{++count}; });
 
+  // we call the write function to write the vector to the file
   step1_write_to_file<IntBasedString>(intbased_vec);
   std::vector<IntBasedString> read_result;
-  // after the next instruction if read is successful read_result will be
-  // moved inside the optional
+  // and lastly we read from the file.
   auto optional_read_result = step1_read_from_file(read_result);
   if (optional_read_result) {
     // do stuff with optional_read_result.value()

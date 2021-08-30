@@ -7,7 +7,7 @@ Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte bu
 
 ## Highlights:
 1. Both APIs work with streams, files and arbitrary buffers of bytes.
-2. You can mix both APIs to have redundancy and speed where needed: *deep_copy_*, and *deep_read_*, for reliability. And *write_*, and *read_*, for faster low level operations. The latter should only be used for objects that have sequential storage; unless, you plan to ignore non-sequential items. For example, a map doesn't have sequential storage so you would use *deep_\** API; but, if you have an object that contains a map, and you want to ignore the map, and read the other value members; the read API has a way to do that. See [Solution 4](#solution-4-based-in-solution-3-ignore-the-value-and-instead-use-its-default-constructor).
+2. You can mix both APIs to have redundancy and speed where needed: *deep_copy_*, and *deep_read_*, for reliability. And *write_*, and *read_*, for faster low level operations. The latter should only be used for objects that have sequential storage; unless, you plan to ignore non-sequential items. For example, a map doesn't have sequential storage so you would use the *deep_\** API; but, if you have an object that contains a map, and you want to ignore the map, and read the other value members; the read API has a way to do that. See [Solution 4](#solution-4-based-in-solution-3-ignore-the-value-and-instead-use-its-default-constructor).
 
 ## Versioning System
 Only the deep copy/read API is setup to be able to write versioned objects and vectors, you can see a complete example that uses all the capabilites of this library in *examples/versioning_example.cpp* and *examples/versioning_example_2.cpp*, the second is a copy of the first with one more step and they have very similar usage.
@@ -33,32 +33,112 @@ Run the program from the command line: *./versioning_example step1*; there are a
 If you run step1, followed by step3 the program will output the following message:
 ``Data file older than version 2 detected, this program only accepts data files version 2 or higher.``
 
-If you run step1, then step2. The program will first try to read the file with it's *version2 read function*, but it will fail and then try with it's *version1 to version2 conversion function* and succeed:
+If you run step1, then step2. The program will first try to read the file with it's *version2 read function*, it will fail, and then fallback to it's *version1 to version2 conversion function* and succeed:
 ```
 Attempting to read vector from file with 'step2_v2_read_function'
 PICKLEJAR_VERBOSE_MODE: Non-critical condition: `optional_version.value() == Version` failed in /mnt/1TUnifiedExtra/lnLinkedSystemFilesAndSoundLibrariesForMusicProduction/ln_home_tom_builds/benchmark/picklejar/examples/picklejar/include/picklejar.hpp line 1593: PICKLEJAR_RUNTIME_MESSAGE: The version from the file (1) doesn't match with the Version of the function (2)
 READ_ERROR_V2
 Failed, Attempting to use 'step2_translate_v1_to_v2' as a Fallback
 ```
+
 By default PickleJar is configured in verbose mode and it will output a message to std::cerr, as you can see the version of the file is *version 1* and the version of the *step2 read function* is version 2. So it will fail to read it. You can disable verbose mode by setting **PICKLEJAR_ENABLE_VERBOSE_MODE** macro to 0 before you include the file or from the command line or with cmake:
 ```cmake
 target_compile_definitions(cmake_target_name PRIVATE PICKLEJAR_ENABLE_VERBOSE_MODE=0)
 ```
 Only non-critical warnings will be disabled by this setting.
 
-If you run step1, followed by step2, and then followed by step2 again, in the last run, the program will no longer have to convert from version 1 to version 2 and you won't see that warning message:
+If you run step1, followed by step2, and then by step2 again, in the last run, the program will no longer have to convert from version 1 to version 2 and you won't see that warning message:
 ```
 Attempting to read vector from file with 'step2_v2_read_function'
 ... Constructor Output ...
 READ_SUCCESS_V2
 ```
 
-If you run step1, followed by step2, and then followed by step3 it will read everything just fine, it will only show an error if you run step1 and then step3 because the version won't match as seen previously.
+If you run step1, followed by step2, and then by step3 it will read everything just fine, it will only show an error if you run step1 and then step3 because the version won't match as seen previously.
 
-If you run step1, followed by step2, and then followed by step4 (step3 doesn't matter here), you will get behavior similar to what happens with step2 but with the version 2 being translated to version 4. If you then try to run step2 you will get 2 warnings, one for the *version 2 read function* and another for the *version 1 to version 2 conversion function* which is just what was intended.
+If you run step1, followed by step2, and then by step4 (step3 doesn't matter here), you will get behavior similar to what happens with step2 but with the version 2 being translated to version 4. If you then try to run step2 you will get 2 warnings, one for the *version 2 read function* and another for the *version 1 to version 2 conversion function* which is just what was intended.
 
 ###### The versioning unit tests are located in *tests/versioning_example_2_with_tests.cpp*
 It runs all the steps in the order they are meant to be tested. It can be used as a template to create a unit tests for your own structures that you want to save and load to a file. I recommend to add a new test every time you make lasting changes to the saved structs you are planning to release.
+
+## Break down of the versioning example code
+The code mixes the low level **(write/read)_** API and the **deep_(copy/read)** API. Let's go through the step1 code:
+```c++
+static void step1() {
+  // first we define the structure we want to store
+  struct IntBasedString {
+    int id;
+    std::string rand_str_id;
+    IntBasedString() = default;
+    explicit IntBasedString(int _id)
+        : id(_id), rand_str_id("ID=" + std::to_string(std::rand())) {
+      std::puts((std::to_string(_id) + " with " + rand_str_id + " Constructed")
+                    .c_str());
+    }
+    explicit IntBasedString(int _id, const std::string _pretty_id)
+        : id(_id), rand_str_id(_pretty_id) {}
+  };
+  // then we generate 10 elements using our (int) constructor
+  std::vector<IntBasedString> intbased_vec(10);
+  std::generate(std::begin(intbased_vec), std::end(intbased_vec),
+                [count = 0]() mutable { return IntBasedString{++count}; });
+
+  // we call the write function to write the vector to the file
+  step1_write_to_file<IntBasedString>(intbased_vec);
+  std::vector<IntBasedString> read_result;
+  // and lastly we read from the file.
+  auto optional_read_result = step1_read_from_file(read_result);
+  if (optional_read_result) {
+    // do stuff with optional_read_result.value()
+  }
+}
+```
+Read the comments of the code as we go along, and now we need 2 functions a write function and a read function, here is the write function:
+```c++
+template <class IntBasedString>
+static void step1_write_to_file(auto &intbased_vec) {
+  if (picklejar::deep_copy_vector_to_file<1>(
+          intbased_vec, "versioning_example.data",
+          [](const IntBasedString &object) {
+            return sizeof(IntBasedString::id) + object.rand_str_id.size();
+          },
+          [](auto &_ofs_output_file, const auto &object, size_t element_size) {
+            auto total_size = size_t(_ofs_output_file.tellp());
+            // write the id
+            if (!picklejar::write_object_to_stream(object.id,
+                                                   _ofs_output_file)) {
+              return false;
+            }
+            // wee need to manually write it for the rand_str_id because a
+            // string can have variable size
+            return picklejar::basic_stream_write(_ofs_output_file,
+                                                 object.rand_str_id.data(),
+                                                 object.rand_str_id.size());
+          })) {
+    std::puts("WRITE_SUCCESS_STEP1");
+  } else {
+    std::puts("WRITE_ERROR_STEP1");
+  }
+}
+```
+I think it would be better if this function would return true if successful, but since it's only an example it prints "WRITE\_SUCCESS\_STEP1" if successful.
+###### deep\_copy\_vector\_to\_file parameters:
+Now, let's focus on the call to `picklejar::deep_copy_vector_to_file<1>(`, the first thing you should notice is the \<1\> template parameter; this is meant to be the version of the object——And is what allows us to read the file version in step3, drop support for older versions, and be able to fallback to a more suitable read function version in step2. If you change it to \<0\>, it would disable versioning, basically you would save sizeof(size_t) which is 8 bytes in my system; but in exchange you lose the mentioned functionality. It's handy in some situations——like structures and classes that you know will never change and don't need the versioning information——and it's used for internal calls by PickleJar when it's not needed.
+
+Now for the function parameters:
+1. We first pass the vector from which PickleJar will read the objects and write them into the file.
+2. The second parameter is the file name that will be used to write the bytes into.
+3. The third parameter is a lambda that takes each object as a parameter and returns the size of each value member. This has to be a lambda because some objects can have variable size; since we have a string inside IntBasedString struct, we want to add the number of characters of each string to the int id—which so far, are the only value members of the string.
+4. The fourth parameter is another lambda, this lambda takes: a std::ofstream& which is what we are going to use to write every element we want to preserve into the file. This lambda is called once for each object inside the vector, so the lambda's second parameter is one of the objects inside the vector. The third parameter is the total size to be written which is the same as what we return in the previous lambda.
+
+###### deep\_read\_vector\_to\_file parameters:
+1. We first pass the vector into which PickleJar will insert the objects it reads from the file.
+
+
+
+
+
+
 
 # *write_\** and *read_\** API
 ## How to use PickleJar to store and recall Trivial Types (ints, floats, doubles, simple structs and classes, etc)
