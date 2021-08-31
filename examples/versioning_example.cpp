@@ -28,7 +28,6 @@ static void step1_write_to_file(auto &intbased_vec) {
             return sizeof(IntBasedString::id) + object.rand_str_id.size();
           },
           [](auto &_ofs_output_file, const auto &object, size_t element_size) {
-            auto total_size = size_t(_ofs_output_file.tellp());
             // write the id
             if (!picklejar::write_object_to_stream(object.id,
                                                    _ofs_output_file)) {

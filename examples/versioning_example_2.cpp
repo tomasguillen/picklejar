@@ -1,4 +1,5 @@
 #include <cassert>
+#include <map>
 
 /*
 
@@ -18,7 +19,6 @@
 
 */
 
-#include <map>
 #include <picklejar.hpp>
 
 template <class IntBasedString>
@@ -29,7 +29,6 @@ static void step1_write_to_file(auto &intbased_vec) {
             return sizeof(IntBasedString::id) + object.rand_str_id.size();
           },
           [](auto &_ofs_output_file, const auto &object, size_t element_size) {
-            auto total_size = size_t(_ofs_output_file.tellp());
             // write the id
             if (!picklejar::write_object_to_stream(object.id,
                                                    _ofs_output_file)) {
@@ -222,21 +221,15 @@ auto step2_v2_read_function(Container &result_changed_v2)
 
             // we added a new member so we need to generate it here
             std::vector<New_Pair> _new_important_pair_vector{};
-            auto remaining_bytes =
-                byte_vector_with_counter.get_remaining_bytes();
             auto optional_new_important_vector =
                 picklejar::read_vector_from_buffer<New_Pair>(
-                    _new_important_pair_vector, remaining_bytes,
+                    _new_important_pair_vector, byte_vector_with_counter,
                     [](auto &blank_instance,
                        auto &valid_bytes_from_new_blank_instance,
                        auto &bytes_from_file) {
                       picklejar::util::copy_new_bytes_to_instance(
                           bytes_from_file, blank_instance, sizeof(New_Pair));
                     });
-            // advance the byte counter by the remaning bytes
-            if (!byte_vector_with_counter.advance_counter(
-                    byte_vector_with_counter.size_remaining()))
-              return false;
             if (!optional_new_important_vector) return false;
             _result.emplace_back(optional_id.value(), _pretty_id,
                                  optional_new_important_vector.value());
@@ -455,11 +448,10 @@ void step4_v4_write_function(auto &result_changed) {
                 picklejar::sizeof_unversioned(object.id) +
                 /*then the size of our string*/
                 picklejar::sizeof_unversioned(object.rand_str_id) +
-                /*followed by the size of our vector of pairs*/
-                picklejar::sizeof_unversioned(
-                    object.new_important_pair_vector) +
                 /*followed by our new_map size*/
-                picklejar::sizeof_versioned<1>(object.new_map);
+                picklejar::sizeof_versioned<1>(object.new_map) +
+                /*followed by the size of our vector of pairs*/
+                picklejar::sizeof_unversioned(object.new_important_pair_vector);
           },
           [](auto &_ofs_output_file, const IntBasedString &object,
              size_t element_size) {
@@ -476,31 +468,28 @@ void step4_v4_write_function(auto &result_changed) {
               return false;
             }
 
-            picklejar::deep_copy_vector_to_stream<1>(
-                object.new_map, _ofs_output_file,
-                [](auto &map_elem) {
-                  return picklejar::sizeof_unversioned(map_elem.first) +
-                         picklejar::sizeof_unversioned(map_elem.second);
-                },
-                [](auto &_map_ofs_output_file, auto &map_elem,
-                   size_t map_element_size) {
-                  // write the actual size of our string into the file
-                  if (!picklejar::write_object_to_stream(
-                          map_elem.first.size(), _map_ofs_output_file)) {
-                    return false;
-                  }
-                  // next we write the string data into the file
-                  if (!picklejar::basic_stream_write(_map_ofs_output_file,
-                                                     map_elem.first.data(),
-                                                     map_elem.first.size()))
-                    return false;
-                  // next we write the map value
-                  if (!picklejar::write_object_to_stream(
-                          map_elem.second, _map_ofs_output_file)) {
-                    return false;
-                  }
-                  return true;
-                });
+            if (!picklejar::deep_copy_vector_to_stream<1>(
+                    object.new_map, _ofs_output_file,
+                    [](auto &map_elem) {
+                      return picklejar::sizeof_unversioned(map_elem.first) +
+                             picklejar::sizeof_unversioned(map_elem.second);
+                    },
+                    [](auto &_map_ofs_output_file, auto &map_elem,
+                       size_t map_element_size) {
+                      // write the string into the file
+                      if (!picklejar::write_string_to_stream(
+                              map_elem.first, _map_ofs_output_file)) {
+                        return false;
+                      }
+                      // next we write the map value
+                      if (!picklejar::write_object_to_stream(
+                              map_elem.second, _map_ofs_output_file)) {
+                        return false;
+                      }
+                      return true;
+                    })) {
+              return false;
+            }
             // and then we write the 'new_important_pair_vector' into the file
             if (!picklejar::write_vector_to_stream(
                     object.new_important_pair_vector, _ofs_output_file)) {
@@ -562,11 +551,9 @@ auto step4_v4_read_function(Container &result_changed_v4)
             // END CHANGES
 
             std::vector<New_Pair> _new_important_pair_vector{};
-            auto remaining_bytes =
-                byte_vector_with_counter.get_remaining_bytes();
             auto optional_new_important_vector =
                 picklejar::read_vector_from_buffer<New_Pair>(
-                    _new_important_pair_vector, remaining_bytes,
+                    _new_important_pair_vector, byte_vector_with_counter,
                     [](auto &blank_instance,
                        auto &valid_bytes_from_new_blank_instance,
                        auto &bytes_from_file) {

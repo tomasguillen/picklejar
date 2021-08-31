@@ -12,7 +12,7 @@ Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte bu
 ## Versioning System
 Only the deep copy/read API is setup to be able to write versioned objects and vectors, you can see a complete example that uses all the capabilites of this library in *examples/versioning_example.cpp* and *examples/versioning_example_2.cpp*, the second is a copy of the first with one more step and they have very similar usage.
 
-If you are trying to store non trivial types, I highly recommend you compile the versioning examples; since they pretty much show the whole point of this library. You may want to modify the code, to store and write the structures you are interested in; just look at how it works for the IntBasedString struct in the *versioning_example* files. A unit test is setup here: *tests/versioning_example_2_with_tests.cpp*; you can use it as a template for the structures you are interested in. It uses a thirdparty unit test library which is located in the *tests/ut* directory. It should be easy to change it to a different test framework. It's always nice to have tests setup for this type of thing; because, it allows to detect any changes that may need to be fixed in case anything outside your control changes. Ex: standard or compiler changes that can't be anticipated.
+If you are trying to store non trivial types, I highly recommend you compile the versioning examples; since they pretty much show the whole point of this library. You may want to modify the code, to store and write the structures you are interested in; just look at how it works for the IntBasedString struct in the *versioning_example* files. A unit test is setup here: *tests/versioning_example_2_with_tests.cpp*; you can use it as a template for the structures you are interested in. It uses a thirdparty unit test library which is located in the *tests/ut* directory. It should be easy to change it to a different test framework. It's always nice to have tests setup for this type of thing because it allows to detect any changes that may need to be fixed in case anything outside your control changes. Ex: standard or compiler changes that can't be anticipated.
 
 ##### The versioning examples are located under the *examples* directory and work like this:
 Run the program from the command line: *./versioning_example step1*; there are a total of 3 steps for the: *./versioning_example* executable; and 4 steps for: *./versioning_example_2*. The only difference between these two is step4 has been added.
@@ -62,7 +62,7 @@ If you run step1, followed by step2, and then by step4 (step3 doesn't matter her
 It runs all the steps in the order they are meant to be tested. It can be used as a template to create a unit tests for your own structures that you want to save and load to a file. I recommend to add a new test every time you make lasting changes to the saved structs you are planning to release.
 
 ## Break down of the versioning example code
-The code mixes the low level **(write/read)_** API and the **deep_(copy/read)** API. Let's go through the step1 code:
+The code mixes the low level **(write/read)_** API and the **deep_(copy/read)** API. Let's go through the step1 code, first we setup a vector that contains the elements we want to store and we call a write and read function that we will break down next:
 ```c++
 static void step1() {
   // first we define the structure we want to store
@@ -93,7 +93,7 @@ static void step1() {
   }
 }
 ```
-Read the comments of the code as we go along, and now we need 2 functions a write function and a read function, here is the write function:
+#### Break down of the write function.
 ```c++
 template <class IntBasedString>
 static void step1_write_to_file(auto &intbased_vec) {
@@ -103,7 +103,6 @@ static void step1_write_to_file(auto &intbased_vec) {
             return sizeof(IntBasedString::id) + object.rand_str_id.size();
           },
           [](auto &_ofs_output_file, const auto &object, size_t element_size) {
-            auto total_size = size_t(_ofs_output_file.tellp());
             // write the id
             if (!picklejar::write_object_to_stream(object.id,
                                                    _ofs_output_file)) {
@@ -122,23 +121,304 @@ static void step1_write_to_file(auto &intbased_vec) {
 }
 ```
 I think it would be better if this function would return true if successful, but since it's only an example it prints "WRITE\_SUCCESS\_STEP1" if successful.
-###### deep\_copy\_vector\_to\_file parameters:
+
+deep\_copy\_vector\_to\_file template parameter:\n
 Now, let's focus on the call to `picklejar::deep_copy_vector_to_file<1>(`, the first thing you should notice is the \<1\> template parameter; this is meant to be the version of the object——And is what allows us to read the file version in step3, drop support for older versions, and be able to fallback to a more suitable read function version in step2. If you change it to \<0\>, it would disable versioning, basically you would save sizeof(size_t) which is 8 bytes in my system; but in exchange you lose the mentioned functionality. It's handy in some situations——like structures and classes that you know will never change and don't need the versioning information——and it's used for internal calls by PickleJar when it's not needed.
 
-Now for the function parameters:
+Now for the deep\_copy\_vector\_to\_file function parameters:
 1. We first pass the vector from which PickleJar will read the objects and write them into the file.
 2. The second parameter is the file name that will be used to write the bytes into.
-3. The third parameter is a lambda that takes each object as a parameter and returns the size of each value member. This has to be a lambda because some objects can have variable size; since we have a string inside IntBasedString struct, we want to add the number of characters of each string to the int id—which so far, are the only value members of the string.
-4. The fourth parameter is another lambda, this lambda takes: a std::ofstream& which is what we are going to use to write every element we want to preserve into the file. This lambda is called once for each object inside the vector, so the lambda's second parameter is one of the objects inside the vector. The third parameter is the total size to be written which is the same as what we return in the previous lambda.
+3. The third parameter is a lambda that takes each object as a parameter and returns the size of each value member. This has to be a lambda because some objects can have variable size; since we have a string inside IntBasedString struct, we want to add the number of characters of each string to the sizeof int id member—which so far, are the only value members of the structure.
+4. The fourth parameter is another lambda, this lambda takes: a std::ofstream& which is what we are going to use to write every element we want to preserve into the file. This lambda is called once for each object inside the vector, so the lambda's second parameter is one of the objects inside the vector. The third parameter is the total size to be written, which is the same as what we return in the previous third parameter lambda.
 
-###### deep\_read\_vector\_to\_file parameters:
-1. We first pass the vector into which PickleJar will insert the objects it reads from the file.
+Let's look at the fourth parameter lambda in more detail:
+```c++
+            // write the id
+            if (!picklejar::write_object_to_stream(object.id,
+                                                   _ofs_output_file)) {
+              return false;
+            }
+            // wee need to manually write it for the rand_str_id because a
+            // string can have variable size
+            return picklejar::basic_stream_write(_ofs_output_file,
+                                                 object.rand_str_id.data(),
+                                                 object.rand_str_id.size());
+```
+This uses the low level API, to write the data of each member into the file. ```c++ picklejar::write_object_to_stream(object.id, _ofs_output_file)``` writes the bytes of our int, you can replace **object.id** for any simple type, even simple structs. For example, structs that only contain: ints, chars, doubles, arrays of simple types, other structs of simple types will all work with this low level call.
 
+So, we have written a simple int, now we use ```c++ picklejar::basic_stream_write(_ofs_output_file, object.rand_str_id.data(), object.rand_str_id.size())``` to write each character of our string into the file. **basic_stream_write** returns true if successful. Notice how we haven't stored how big our string is, we can get away with this only because it's the last element we are writting and PickleJar already knows the total size of bytes of the object—which we returned it in the third parameter lambda:
+```c++
+return sizeof(IntBasedString::id) + object.rand_str_id.size();
+```
+However, if you change your struct and you want to add another member that has variable size, we can't get away with this anymore and we will see how to deal with that in step2.
 
+#### Break down of the read function
+First thing to note is the next function returns a **picklejar::optional<Container>**, which if successful will have as a .value() the actual container that we passed into this function by reference: **(Container &read_result)**. PickleJar by default works with a thirdparty typesafe library. I wanted to have a way to return an optional of a container—technically speaking, you can return a pointer that is null when the result is invalid—but I wanted to use an optional because it looks nicer and more expressive in my opinion. The problem is if I return a **std**::optional\<Container\> there will be a copy or a move into the container. Because this could be a container with a lot of elements; I didn't want to copy and I disliked having a move too even though it's not that bad. Another way would be to return an optional of a pointer to the container, but I disliked the pointer interface and I already had existing code.
 
+So I opted to add a thirdparty library and hide it under **picklejar::optional<Container>** what this means to you is that by default PickleJar returns an optional that contains a reference—in simple words it's a class that contains a pointer that behaves like a reference—That way, you can use it as if it's a std::optional<Container> but without a move or a copy. You can disable the thirdparty library by setting **DISABLE_TYPESAFE_OPTIONAL** macro to 1 before you include the file or from the command line or with cmake:
+```cmake
+target_compile_definitions(cmake_target_name PRIVATE DISABLE_TYPESAFE_OPTIONAL=1)
+```
 
+If you choose to use thirdparty *optional_ref* or *std::optional* and you don't want to return a *picklejar::optional*, take a look at the top of "picklejar.hpp" and copy either method or use your own prefered way for your functions. If you use picklejar::optional and later disable or enable the thirdparty library you won't have to change your code as long as you are checking the result and using the .value() inside the if statement. Like in the following *read function*:
+```c++
+template <class Container>
+static auto step1_read_from_file(Container &read_result)
+    -> picklejar::optional<Container> {
+  if (auto optional_result{picklejar::deep_read_vector_from_file<1>(
+          read_result, "versioning_example.data",
+          [](auto &_result,
+             picklejar::ByteVectorWithCounter &byte_vector_with_counter) {
+            auto optional_id = byte_vector_with_counter.read<int>();
+            if (!optional_id) return false;
+            std::string _pretty_id(byte_vector_with_counter.current_iterator(),
+                                   std::end(byte_vector_with_counter));
+            // advance the byte counter by the remaning bytes
+            if (!byte_vector_with_counter.advance_counter(
+                    byte_vector_with_counter.size_remaining()))
+              return false;
 
+            _result.emplace_back(optional_id.value(), _pretty_id);
+            return true;
+          })}) {
+    std::puts("READ_SUCCESS_STEP1");
+    std::puts(
+        ("fifth element_id=" + std::to_string(optional_result.value().at(4).id))
+            .c_str());
+    std::puts(
+        ("fifth element_rand_id=" + optional_result.value().at(4).rand_str_id)
+            .c_str());
+    return PICKLEJAR_MAKE_OPTIONAL(optional_result.value());
+  }
+  std::puts("READ_ERROR_STEP1");
+  return {};
+}
+```
 
+```picklejar::deep_read_vector_from_file<1>``` will return a picklejar::optional, which if successful we use it's stored value like **optional_result.value()**, this is the vector that was read from the file.
+
+The template parameter is the version of the file this read function is able to read, anything else will be rejected. Same as explained in the write function, \<0\> will disable versioning.
+
+deep\_read\_vector\_to\_file parameters:
+1. We first pass the vector into which PickleJar will insert the objects it reads from the file. If the read is successful it will return an optional that contains a reference to that vector and is accessible by optional_result.value().
+2. The second parameter is the file name to read from
+3. The last parameter is a lambda that takes care of translating the bytes in the file into an element that will be inserted into the vector. Returns true if read is successful. Basically, it's the counterpart for the fourth parameter of the *deep_copy_vector_to_file* function.
+
+Let's look at the lambda in more detail:
+```c++
+          [](auto &_result,
+             picklejar::ByteVectorWithCounter &byte_vector_with_counter) {
+            auto optional_id = byte_vector_with_counter.read<int>();
+            if (!optional_id) return false;
+            std::string _pretty_id(byte_vector_with_counter.current_iterator(),
+                                   std::end(byte_vector_with_counter));
+            // advance the byte counter by the remaning bytes
+            if (!byte_vector_with_counter.advance_counter(
+                    byte_vector_with_counter.size_remaining()))
+              return false;
+
+            _result.emplace_back(optional_id.value(), _pretty_id);
+            return true;
+          }
+```
+It needs to take two parameters: a reference to the same vector that we passed as a first parameter to *deep_read_vector_to_file*, and a **picklejar::ByteVectorWithCounter** which is a vector<char> that has a counter that keeps track of how many bytes have been read so far. This second parameter contains the bytes we got from the file that we need to convert into a valid object.
+
+```c++
+auto optional_id = byte_vector_with_counter.read<int>();
+```
+What this line does is read 4 bytes—sizeof(int)—from our buffer and return an **std::optional** that contains our id member. So we have effectively recovered our stored IntBasedString::id member from the file. It also takes care of advancing the inner counter of *byte_vector_with_counter* by 4 bytes. Setting up our call to byte_vector_with_counter.current_iterator() for the subsequent *std::string* read...
+```c++
+            std::string _pretty_id(byte_vector_with_counter.current_iterator(),
+                                   std::end(byte_vector_with_counter));
+```
+
+To recover our *std::string*, we simply pass two iterators—representing the remaining bytes of the buffer—to the string constructor. We also have to advance the counter of our *byte_vector_with_counter* to the end; otherwise, PickleJar will show a run time error—it's an assert— telling you that you haven't used all the bytes that were expected:
+```
+byte_vector_with_counter.advance_counter(byte_vector_with_counter.size_remaining())
+```
+
+Finally, we construct the object inplace with std::vector::emplace_back by passing our recovered members. You can use *push\_back* if you want but emplace_back should be the correct way here, you can also pass things other than a vector to this function; so technically, you can insert into a list or a map if you wish.
+```
+_result.emplace_back(optional_id.value(), _pretty_id);
+```
+Remember to return true if successful.
+
+### Now that we know the basics of how the deep\_(copy/read) API works let's quickly go over the other steps in the versioning example:
+#### Step2:
+In step2 we need three functions instead of two:
+##### step2\_translate\_v1\_to\_v2:
+Reads the file from version one and adds a new element we can pass to our constructor. Alternatively, you can use the same read_function you used in version 1 but change the 2 parameter constructor to deal with the changes made to the struct.
+##### step2\_v2\_write\_function:
+Here we write the int that contains our id member, like we did in step1; but we changed our string to use:
+```c++
+picklejar::write_string_to_stream(object.rand_str_id, _ofs_output_file)
+```
+This function will store size information additionaly to the string's character data so we can know how many bytes to read later for each object. This is done because each object can contain a differently sized string.
+Then we store our vector of pairs:
+```c++
+            if (!picklejar::write_vector_to_stream(
+                    object.new_important_pair_vector, _ofs_output_file))
+              return false;
+```
+This will just take the vector's .data() and write it to the file. This works because vector storage is sequential. And finally, since it's the last item we are storing, we don't need to store the size of the vector.
+
+Another thing to note is that since now we are using low level API calls we can obtain the size of each object using **picklejar::sizeof_unversioned(object)**. We do this in the third parameter lambda that takes care of returning the size we are writing:
+```c++
+          [](const IntBasedString &object) {
+            // we return the total size of elements we are writing into the file
+            return /*our int id goes first*/
+                picklejar::sizeof_unversioned(object.id) +
+                /*then the size of our string*/
+                picklejar::sizeof_unversioned(object.rand_str_id) +
+                /*followed by the size of our vector of pairs*/
+                picklejar::sizeof_unversioned(object.new_important_pair_vector);
+          }
+```
+##### step2\_v2\_read\_function:
+Here we read the int as we did before, but it changes for the string, we first obtain the string size:
+```c++
+auto optional_string_size = byte_vector_with_counter.read<size_t>();
+```
+Then we use it to initialize our string
+```c++
+            std::string _pretty_id(byte_vector_with_counter.current_iterator(),
+                                   byte_vector_with_counter.offset_iterator(
+                                       optional_string_size.value()));
+```
+**byte_vector_with_counter.offset_iterator** returns an iterator that is equivalent to **current_iterator()** + **optional_string_size.value()**
+We still have to advance the counter by the size of the string.
+
+Then we proceed to read the new vector of pairs from the remaing bytes in the **byte_vector_with_counter** using the low level API—which is explained in another section of this readme, but basically, it just copies the bytes from the file directly into a blank instance of **New_Pair**—passing it the **byte_vector_with_counter**:
+```
+            std::vector<New_Pair> _new_important_pair_vector{};
+			auto optional_new_important_vector =
+                picklejar::read_vector_from_buffer<New_Pair>(
+                    _new_important_pair_vector, byte_vector_with_counter,
+                    [](auto &blank_instance,
+                       auto &valid_bytes_from_new_blank_instance,
+                       auto &bytes_from_file) {
+                      picklejar::util::copy_new_bytes_to_instance(
+                          bytes_from_file, blank_instance, sizeof(New_Pair));
+                    });
+```
+Notice we don't have to advance the counter when we use a _picklejar::read_(object/vector)__from_**buffer** function. Any function that takes a **byte_vector_with_counter** will take care of advancing the counter for us.
+
+We end by emplacing the object with it's additional third parameter:
+```
+_result.emplace_back(optional_id.value(), _pretty_id,
+                                 optional_new_important_vector.value());
+return true;
+```
+#### Step3:
+Step3 reuses the step2 read and write functions, instead of translating from version one we drop support like so:
+```c++
+  auto optional_version =
+      picklejar::read_version_from_file("versioning_example.data");
+  if (!optional_version) {
+    std::puts("Failed to open file.");
+    return;
+  }
+  if (optional_version.value() < 2) {
+    std::puts(
+        "Data file older than version 2 detected, this program only accepts "
+        "data files version 2 or higher.");
+    return;
+  }
+```
+
+#### Step4:
+Is very similar to step2 in that we have copied the three functions used and modified them to add a map to our IntBasedString example structure.
+##### step4\_translate\_v2\_to\_v4:
+Only differs from step2 in that we pass a generated map element to the emplace_back call.
+##### step4\_v4\_write\_function:
+We added a **deep_copy** API call to store our map. One important detail is that we are storing the map before our vector of pairs, in order to take advantage of the low level API call that we already wrote in step2. Otherwise we would have to use **deep_copy** for the vector of pairs too since we would have to know it's size ahead of time.
+```c++
+            if (!picklejar::deep_copy_vector_to_stream<1>(
+                    object.new_map, _ofs_output_file,
+                    [](auto &map_elem) {
+                      return picklejar::sizeof_unversioned(map_elem.first) +
+                             picklejar::sizeof_unversioned(map_elem.second);
+                    },
+                    [](auto &_map_ofs_output_file, auto &map_elem,
+                       size_t map_element_size) {
+                      // write the string into the file
+                      if (!picklejar::write_string_to_stream(
+                              map_elem.first, _map_ofs_output_file)) {
+                        return false;
+                      }
+                      // next we write the map value
+                      if (!picklejar::write_object_to_stream(
+                              map_elem.second, _map_ofs_output_file)) {
+                        return false;
+                      }
+                      return true;
+                    })) {
+              return false;
+            }
+```
+Another important point is that now that we are using a **deep_copy** API we now use **picklejar::sizeof_versioned<1>** with the same version as the map **deep_copy** call:
+```c++
+          [](const IntBasedString &object) {
+            // we return the total size of elements we are writing into the file
+            return /*our int id goes first*/
+                picklejar::sizeof_unversioned(object.id) +
+                /*then the size of our string*/
+                picklejar::sizeof_unversioned(object.rand_str_id) +
+                /*followed by our new_map size*/
+                picklejar::sizeof_versioned<1>(object.new_map) +
+                /*followed by the size of our vector of pairs*/
+                picklejar::sizeof_unversioned(object.new_important_pair_vector);
+          }
+```
+##### step4\_v4\_read\_function:
+The only change from step2 here is that we read the map, before we read our vector of new pairs:
+```c++
+            New_Map read_new_map{};
+            auto optional_new_map{picklejar::deep_read_vector_from_buffer<1>(
+                read_new_map, byte_vector_with_counter,
+                [](auto &map_result, picklejar::ByteVectorWithCounter
+                                         &_map_byte_vector_with_counter) {
+                  auto optional_map_key_size =
+                      _map_byte_vector_with_counter.read<size_t>();
+                  if (!optional_map_key_size) return false;
+                  std::string _map_key(
+                      _map_byte_vector_with_counter.current_iterator(),
+                      _map_byte_vector_with_counter.offset_iterator(
+                          optional_map_key_size.value()));
+                  if (!_map_byte_vector_with_counter.advance_counter(
+                          optional_map_key_size.value()))
+                    return false;
+
+                  auto optional_map_value =
+                      _map_byte_vector_with_counter.read<TrivialStructForMap>();
+                  if (!optional_map_value) return false;
+                  map_result[_map_key] = optional_map_value.value();
+                  return true;
+                })};
+```
+first we read our std::string key:
+```c++
+                auto optional_map_key_size =
+                      _map_byte_vector_with_counter.read<size_t>();
+                  if (!optional_map_key_size) return false;
+                  std::string _map_key(
+                      _map_byte_vector_with_counter.current_iterator(),
+                      _map_byte_vector_with_counter.offset_iterator(
+                          optional_map_key_size.value()));
+                  if (!_map_byte_vector_with_counter.advance_counter(
+                          optional_map_key_size.value()))
+                    return false;
+```
+then we read the value:
+```c++
+auto optional_map_value =
+                      _map_byte_vector_with_counter.read<TrivialStructForMap>();
+                  if (!optional_map_value) return false;
+```
+and finally we insert our read elements into the resulting map:
+```c++
+map_result[_map_key] = optional_map_value.value();
+```
 
 # *write_\** and *read_\** API
 ## How to use PickleJar to store and recall Trivial Types (ints, floats, doubles, simple structs and classes, etc)
