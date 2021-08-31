@@ -25,7 +25,7 @@ Ideally I wish I could tell you, you could just call picklejar::pickle\_write\_o
 
 ## Highlights:
 1. Both APIs work with streams, files and arbitrary buffers of bytes.
-2. You can mix both APIs to have redundancy and speed where needed: *deep_copy_*, and *deep_read_*, for reliability. And *write_*, and *read_*, for faster low level operations. The latter should only be used for objects that have sequential storage; unless, you plan to ignore non-sequential items. For example, a map doesn't have sequential storage so you would use the *deep_\** API; but, if you have an object that contains a map, and you want to ignore the map, and read the other value members; the read API has a way to do that. See [Solution 4](#solution-4-based-in-solution-3-ignore-the-value-and-instead-use-its-default-constructor).
+2. You can mix both APIs to have redundancy and speed where needed: *deep_copy_*, and *deep_read_*, for reliability. And *write_*, and *read_*, for faster low level operations. The latter should only be used for objects that have sequential storage; unless, you plan to ignore non-sequential items. For example, a map doesn't have sequential storage so you would use the *deep_\** API; but, if you have an object that contains a map, and you want to ignore the map, and read the other value members; the read API has a way to do that. See [Solution 3 and 4](https://github.com/tomasguillen/picklejar#solution-3-re-generate-the-object-using-its-constructor).
 
 ## Quick Start
 If you are trying to store the following types—or structs and classes that contain only the following types:
@@ -612,7 +612,7 @@ This allows to use this function for more complex types and all you have to do i
 ## Solution 1: For a more complex case.
 
 ## Solution 2: Don't save it and Re-Generate the Non-TriviallyCopiable object when we run the program again.
-This Solution works if you can generate the object without much effort and the non-triviallycopiable object has a default constructor(otherwise see Solution 3 which is prefered to Solution 2), in other words you don't need an exact copy because the data can be generated (using **write_vector_to_file** and **read_vector_from_file<std::string>**):
+This Solution works if you can generate the object without much effort and the non-triviallycopiable object has a default constructor(otherwise see Solution 3 which is prefered to Solution 2), in other words you don't need an exact copy because the data can be generated (using **write_vector_to_file** and **read_vector_from_file\<std::string\>**):
 ```c++
 static void exampleSolution2() {
   std::vector<std::string> string_vec{
@@ -643,7 +643,7 @@ static void exampleSolution2() {
 }
 ```
 ## Solution 3: Re-Generate the object using it's constructor.
-This is same principle as solution 2 but instead of modifying the string after we have default constructed, we pass a lambda that returns a tuple as a fourth parameter of **read_vector_from_file**, the tuple will be used by PickleJar to construct the object in place, as if you passed the contents of the tuple as parameters to the Non-TriviallyCopiable Type (using **write_vector_to_file** and **read_vector_from_file<std::string>**):
+This is same principle as solution 2 but instead of modifying the string after we have default constructed, we pass a lambda that returns a tuple as a fourth parameter of **read_vector_from_file**, the tuple will be used by PickleJar to construct the object in place, as if you passed the contents of the tuple as parameters to the Non-TriviallyCopiable Type (using **write_vector_to_file** and **read_vector_from_file\<std::string\>**):
 ```c++
 static void exampleSolution3() {
   std::vector<std::string> string_vec{
@@ -675,7 +675,7 @@ static void exampleSolution3() {
 }
 ```
 ## Solution 4: Based in **Solution 3**. Ignore the value and instead use it's default constructor.
-In this case we just default generate all the strings, which in turn will make all of them be empty strings (using **write_vector_to_file** and **read_vector_from_file<std::string>**):
+In this case we just default generate all the strings, which in turn will make all of them be empty strings (using **write_vector_to_file** and **read_vector_from_file\<std::string\>**):
 ```c++
 static void exampleSolution4() {
   std::vector<std::string> string_vec{
