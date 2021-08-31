@@ -1,5 +1,23 @@
-# C++ Pickle Jar
+### Apache License:
+  Copyright 2021 Pedro Tomas Guillen
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+
+# C++ PickleJar
 Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers; a simple versioning system prevents you from making common mistakes, and it allows you to update the objects stored after the fact.
+
+## The Ultimate Goal Of This Library
+Ideally I wish I could tell you, you could just call picklejar::pickle\_write\_or\_read(any\_kind\_of\_object); and it would do the right thing. Unfortunately, c++20 doesn't have a way to reflect on the value member types of a class. Maybe it will appear in c++23, but until then you will have to use one of the two APIs I've provided below.
 
 ## Two APIs:
 * One for deep copying/reading with versioning and byte size redundancy
@@ -9,6 +27,107 @@ Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte bu
 1. Both APIs work with streams, files and arbitrary buffers of bytes.
 2. You can mix both APIs to have redundancy and speed where needed: *deep_copy_*, and *deep_read_*, for reliability. And *write_*, and *read_*, for faster low level operations. The latter should only be used for objects that have sequential storage; unless, you plan to ignore non-sequential items. For example, a map doesn't have sequential storage so you would use the *deep_\** API; but, if you have an object that contains a map, and you want to ignore the map, and read the other value members; the read API has a way to do that. See [Solution 4](#solution-4-based-in-solution-3-ignore-the-value-and-instead-use-its-default-constructor).
 
+## Quick Start
+If you are trying to store the following types—or structs and classes that contain only the following types:
+int, double, float, bool, std::array or a normal array but stored inside the object, and any other type where it's bytes are not stored in the heap or outside of the object allocated memory. Then you can, and should prefer to use the low-level API, but only if you don't need versioning.
+
+If you are trying to store an object allocated in the heap, or a hybrid like a std::string, you should use the deep_(copy/read) API. With the exception of std::string that now has it's own **write_string_to_(stream/file/buffer)** function, but no read function since it's a simple case.
+
+Every read or write function for both APIs has a version that interfaces with the following 3 types: (std::ofstream or std::ifstream), a file name (just a wrapper around the stream version), and a picklejar::BufferVectorWithCounter. In the case of the BufferVectorWithCounter class it's just essentially a **std::vector<char>** that has a counter that increases when it's .read() or .write() member functions are called. Their functionality is very similar, their use only differs slightly, and in some cases there's no difference at all.
+
+Similarly, every read or write function has an object and a vector version. The latter can work with any container but only for it's **deep_(copy/read)** version.
+
+### Basic API Quick Start
+All Basic API read or write functions have the following form: 
+**basic_stream_write**, where you can replace "write" with "read", and "stream" with "buffer". There is no "file" version.
+
+They all take 3 paramaters:
+1. a stream(ofstream or ifstream) or a picklejar::ByteVectorWithCounter.
+2. a pointer to **destination_to_read_from** in case of the write function. and a pointer to **destination_to_write_to** in case of the read function. See example after.
+3. The size to read or write.
+
+```
+// write string starting with .data() pointer until .data() + size effectively writting the whole string to the std::ofstream
+picklejar::basic_stream_write(_ofs_output_file, a_std_string.data(), a_std_string.size());
+```
+For the read function we are telling it to read from the stream or buffer into the second parameter pointer we passed.
+
+### Low-Level API Quick Start
+All low-level read or write functions have the following form:
+**picklejar::write_object_to_file**, where you can replace "write" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".
+Additionally, this API has **picklejar::util::preserve_blank_instance_member** and **copy_new_bytes_to_instance** which are described in the Low-Level API break down section.
+Also, **picklejar::sizeof_unversioned** can be used to obtain the size of an object or vector taking into account additional bytes used by picklejar—generally just the .size() if it's a container or a string. This is useful for using low-level API calls inside the Deep Copy/Read API write functions.
+Finally, **picklejar::write_string_to_buffer** is a lone function, there is no read equivalent and it's just there to facilitate writting std::strings in certain situations, reading the string is easy and can be seen in the versioining examples.
+
+Here are the write and read functions that can be used to write and read an object to a file
+```c++
+write_object_to_file(5, "example1.data"); // returns true if successful
+int i = read_object_from_file<int>("example1.data"); // returns the int, notice we have to pass the type as a template paramater <int>.
+```
+Here is how to write and read a vector of ints to/from a file:
+```c++
+static void example1() {
+  std::vector<int> int_vec{0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512};
+
+  if (picklejar::write_vector_to_file(int_vec, "example1.data"))
+    std::puts("WRITESUCCESS");
+
+  if (auto optional_read_vector =
+          picklejar::read_vector_from_file<int>("example1.data");
+      optional_read_vector) {
+    std::puts(("READSUCCESS: fourth element is " +
+               std::to_string(optional_read_vector.value().at(4)))
+                  .c_str());
+  }
+}
+```
+This API won't easily work with a vector of std::string, unless you use it's more complex overloads. See the Low-Level API break down section of this readme.
+
+### Deep Copy/Read API
+All deep copy or deep read functions have the following form:
+**picklejar::deep_copy_object_to_file**, where you can replace "copy" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".
+Finally, **picklejar::sizeof_versioned** can be used to obtain the size of a **deep_copied** object or vector taking into account additional bytes used by picklejar—generally consisting of the version and the .size() if it's a container or a string. This is useful for using nested **deep_copy** API calls inside another Deep Copy/Read API write function.
+
+Here is how to write and read a vector of std::string:
+```c++
+static void exampleSolution1dFile() {
+  std::vector<std::string> string_vec{"0",  "1",  "2",   "4",   "8",   "16",
+                                      "32", "64", "128", "256", "512", "1024"};
+
+  if (picklejar::deep_copy_vector_to_file(
+          string_vec, "example1.data",
+          [](auto &string) { return string.size(); },
+          [](auto &_ofs_output_file, auto &object, size_t element_size) {
+            _ofs_output_file.write(object.data(),
+                                   std::streamsize(element_size));
+            return _ofs_output_file.good();
+          })) {
+    std::puts("WRITE_SUCCESS");
+  }
+
+  std::vector<std::string> result;
+  if (auto optional_result{picklejar::deep_read_vector_from_file(
+          result, "example1.data", [](auto &_result, auto &char_buffer) {
+            _result.emplace_back(std::begin(char_buffer),
+                                 std::end(char_buffer));
+          })}) {
+    std::puts(("fifth element=" + optional_result.value().at(4)).c_str());
+  }
+}
+```
+
+### About ByteVectorWithCounter
+Here is the basic functionality—just a vector of char with a counter:
+```c++
+ByteVectorWithCounter byte_vector_with_counter{sizeof(int)}; // tell it how much space you need
+byte_vector_with_counter.write(5); // returns true if successful write, it will deduce the type we pass it
+byte_vector_with_counter.set_counter(0); // resets the counter so we can read what we just wrote
+int i = byte_vector_with_counter.read<int>(); // reads the int into variable i, it can't deduce so we have to pass <int> as a template parameter
+
+```
+you can directly access **.byte_data** which is the **vector<char>** and also **byte_counter** which is a **std::optional<size_t>** that is invalidated if we try to read or write more than it's current size.
+
+# Deep Copy/Read API break down section
 ## Versioning System
 Only the deep copy/read API is setup to be able to write versioned objects and vectors, you can see a complete example that uses all the capabilites of this library in *examples/versioning_example.cpp* and *examples/versioning_example_2.cpp*, the second is a copy of the first with one more step and they have very similar usage.
 
@@ -144,9 +263,9 @@ Let's look at the fourth parameter lambda in more detail:
                                                  object.rand_str_id.data(),
                                                  object.rand_str_id.size());
 ```
-This uses the low level API, to write the data of each member into the file. ```c++ picklejar::write_object_to_stream(object.id, _ofs_output_file)``` writes the bytes of our int, you can replace **object.id** for any simple type, even simple structs. For example, structs that only contain: ints, chars, doubles, arrays of simple types, other structs of simple types will all work with this low level call.
+This uses the low level API, to write the data of each member into the file. ```picklejar::write_object_to_stream(object.id, _ofs_output_file)``` writes the bytes of our int, you can replace **object.id** for any simple type, even simple structs. For example, structs that only contain: ints, chars, doubles, arrays of simple types, other structs of simple types will all work with this low level call.
 
-So, we have written a simple int, now we use ```c++ picklejar::basic_stream_write(_ofs_output_file, object.rand_str_id.data(), object.rand_str_id.size())``` to write each character of our string into the file. **basic_stream_write** returns true if successful. Notice how we haven't stored how big our string is, we can get away with this only because it's the last element we are writting and PickleJar already knows the total size of bytes of the object—which we returned it in the third parameter lambda:
+So, we have written a simple int, now we use ```picklejar::basic_stream_write(_ofs_output_file, object.rand_str_id.data(), object.rand_str_id.size())``` to write each character of our string into the file. **basic_stream_write** returns true if successful. Notice how we haven't stored how big our string is, we can get away with this only because it's the last element we are writting and PickleJar already knows the total size of bytes of the object—which we returned it in the third parameter lambda:
 ```c++
 return sizeof(IntBasedString::id) + object.rand_str_id.size();
 ```
@@ -289,7 +408,7 @@ Then we use it to initialize our string
 We still have to advance the counter by the size of the string.
 
 Then we proceed to read the new vector of pairs from the remaing bytes in the **byte_vector_with_counter** using the low level API—which is explained in another section of this readme, but basically, it just copies the bytes from the file directly into a blank instance of **New_Pair**—passing it the **byte_vector_with_counter**:
-```
+```c++
             std::vector<New_Pair> _new_important_pair_vector{};
 			auto optional_new_important_vector =
                 picklejar::read_vector_from_buffer<New_Pair>(
@@ -304,7 +423,7 @@ Then we proceed to read the new vector of pairs from the remaing bytes in the **
 Notice we don't have to advance the counter when we use a _picklejar::read_(object/vector)__from_**buffer** function. Any function that takes a **byte_vector_with_counter** will take care of advancing the counter for us.
 
 We end by emplacing the object with it's additional third parameter:
-```
+```c++
 _result.emplace_back(optional_id.value(), _pretty_id,
                                  optional_new_important_vector.value());
 return true;
@@ -420,7 +539,7 @@ and finally we insert our read elements into the resulting map:
 map_result[_map_key] = optional_map_value.value();
 ```
 
-# *write_\** and *read_\** API
+# Low-Level API break down section
 ## How to use PickleJar to store and recall Trivial Types (ints, floats, doubles, simple structs and classes, etc)
 This is how to write a vector of ints to a file named "example1.data":
 ```c++
@@ -791,84 +910,7 @@ But you can also use ```picklejar::util::preserve_blank_instance_member``` with 
                     valid_bytes_from_new_blank_instance, bytes_from_file);
 ```
 In this case we are finding the byte offset of the member UITransposeFilter::id and preserving the bytes from the current application run in order to copy the other members into our new object. This allows us to ignore the id member if we don't care about copying it.
-### So which algorithm do I use?
-|   | Second Header |
-| ------------- | ------------- |
-| Content Cell  | Content Cell  |
-| Content Cell  | Content Cell  |
-
-NON TRIVIAL EXAMPLES Section
 
 ## GCC Compiler Flag caveat:
 If compiling with GCC and have -Werror you may want to turn off -Wno-class-memaccess if it gives a warning but should only give warning when using picklejar with non-trivially-copiable objects
 
-
-// API STATUS:
-// READ OPERATIONS: stream:complete,
-// file:complete
-// object_stream:complete
-// object_buffer:complete
-// buffer:complete
-
-// object_stream_v1
-
-// object_stream_v1_copy uses object_stream_v1
-
-// START object_file_v1 uses object_stream_v1
-
-// START object_file_v1_copy uses object_stream_v1
-
-// stream_v1 uses object_stream_v1
-  
-// file_v1 uses stream_v1
-
-// object_stream_v2
-
-// object_file_v2 uses object_stream_v2
-
-// object_buffer_v2
-
-// object_stream_v3 uses object_stream_v2
-
-// object_file_v3 uses object_stream_v2
-// 
-// object_buffer_v3 uses object_buffer_v2
-
-// object_buffer_v1
-
-// START object_buffer_v1_copy uses object_buffer_v1
-
-// buffer_v1 uses object_buffer_v1
-
-// buffer_v3 uses object_buffer_v2
-
-// stream_v3 uses object_stream_v2
-
-// stream_v2 uses stream_v3
-
-// buffer_v2 uses buffer_v3
-
-// file_v2 uses stream_v2
-
-// file_v3 uses stream_v3
-
-
-// WRITE OPERATIONS:
-
-// START WRITE_VECTOR_TO
-
-// object_stream_v1
-
-// object_file_v1
-
-// object_buffer_v1_array
-
-// object_buffer_v1_vector
-
-// stream_v1
-
-// file_v1
-
-// buffer_v1_array
-
-// buffer_v1_vector
