@@ -13,11 +13,14 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 
+### Feel free to contact me
+Send an email to tomguillen at zoho dot com, if you find a bug or have any comments or ideas you would like to see added to the library. Any code contribution will be welcomed and considered.
+
 # C++ PickleJar
 Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers; a simple versioning system prevents you from making common mistakes, and it allows you to update the objects stored after the fact.
 
 ## The Ultimate Goal Of This Library
-Ideally I wish I could tell you, you could just call ```picklejar::pickle\_write\_or\_read(any\_kind\_of\_object);``` and it would do the right thing. Unfortunately, c++20 doesn't have a way to reflect on the value member types of a class, so I can't loop through each member and use the right API call in the right circumstance. Maybe reflection will appear in c++23, but until then you will have to use one of the two APIs I've provided below.
+In an ideal world, you could just call ```picklejar::pickle\_write\_or\_read(any\_kind\_of\_object);``` and it would do the right thing. Unfortunately, c++20 doesn't have a way to reflect on the value member types of a class, so I can't loop through each member and use the right API call in the right circumstance. Maybe reflection will appear in c++23, but until then you will have to use one of the two APIs I've provided below.
 
 ## Two APIs:
 * One for deep copying/reading with versioning and byte size redundancy
@@ -26,6 +29,35 @@ Ideally I wish I could tell you, you could just call ```picklejar::pickle\_write
 ## Highlights:
 1. Both APIs work with streams, files and arbitrary buffers of bytes.
 2. You can mix both APIs to have redundancy and speed where needed: *deep_copy_*, and *deep_read_*, for reliability. And *write_*, and *read_*, for faster low level operations. The latter should only be used for objects that have sequential storage; unless, you plan to ignore non-sequential items. For example, a map doesn't have sequential storage so you would use the *deep_\** API; but, if you have an object that contains a map, and you want to ignore the map, and read the other value members; the read API has a way to do that. See [Solution 3 and 4](https://github.com/tomasguillen/picklejar#solution-3-re-generate-the-object-using-its-constructor).
+3. Uses c++20 concepts in order to catch common errors at compile-time, that would otherwise cause a program to crash at run-time.
+
+## Adding PickleJar to your project
+### 1. CMake 
+```git
+git clone --recursive https://github.com/tomasguillen/picklejar.git
+```
+Modify your CMakeLists.txt:
+```cmake
+add_subdirectory(picklejar)
+
+add_executable(target_name ...
+target_link_libraries(target_name PRIVATE PickleJar ...
+```
+and in your code add:
+```c++
+#include <picklejar.hpp>
+...
+```
+### 2. Without CMake
+```git
+git clone --recursive https://github.com/tomasguillen/picklejar.git
+```
+then in your code add:
+```c++
+#define DISABLE_TYPESAFE_OPTIONAL
+#include "picklejar/include/picklejar.hpp"
+...
+```
 
 ## Quick Start
 If you are trying to store the following types—or structs and classes that contain only the following types:
@@ -38,10 +70,10 @@ Every read or write function for both APIs has a version that interfaces with th
 Similarly, every read or write function has an object and a vector version. The latter can work with any container but only for it's **deep_(copy/read)** version.
 
 ### Low-Level API Quick Start
-All low-level read or write functions have the following form:\n
-**picklejar::write_object_to_file**, where you can replace "write" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".\n
-Additionally, this API has **picklejar::util::preserve_blank_instance_member** and **copy_new_bytes_to_instance** which are described in the Low-Level API break down section.\n
-Also, **picklejar::sizeof_unversioned** can be used to obtain the size of an object or vector taking into account additional bytes used by picklejar—generally just the .size() if it's a container or a string. This is useful for using low-level API calls inside the Deep Copy/Read API write functions.\n
+All low-level read or write functions have the following form:\
+**picklejar::write_object_to_file**, where you can replace "write" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".\
+Additionally, this API has **picklejar::util::preserve_blank_instance_member** and **copy_new_bytes_to_instance** which are described in the Low-Level API break down section.\
+Also, **picklejar::sizeof_unversioned** can be used to obtain the size of an object or vector taking into account additional bytes used by picklejar—generally just the .size() if it's a container or a string. This is useful for using low-level API calls inside the Deep Copy/Read API write functions.\
 Finally, **picklejar::write_string_to_buffer** is a lone function, there is no read equivalent and it's just there to facilitate writting std::strings in certain situations, reading the string is easy and can be seen in the versioining examples.
 
 Here are the write and read functions that can be used to write and read an object to a file
@@ -66,11 +98,11 @@ static void example1() {
   }
 }
 ```
-This API won't easily work with a vector of std::string, unless you use it's more complex overloads. See the Low-Level API break down section of this readme.
+The Low-Level API won't easily work with a vector of std::string, unless you use it's more complex overloads, I recommend using the Deep Copy/Read API explained next. See the "Low-Level API Break Down Section" of this readme to know more it.
 
 ### Deep Copy/Read API
-All deep copy or deep read functions have the following form:\n
-**picklejar::deep_copy_object_to_file**, where you can replace "copy" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".\n
+All deep copy or deep read functions have the following form:\
+**picklejar::deep_copy_object_to_file**, where you can replace "copy" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".\
 Finally, **picklejar::sizeof_versioned** can be used to obtain the size of a **deep_copied** object or vector taking into account additional bytes used by picklejar—generally consisting of the version and the .size() if it's a container or a string. This is useful for using nested **deep_copy** API calls inside another Deep Copy/Read API write function.
 
 Here is how to write and read a vector of std::string:
@@ -101,7 +133,7 @@ static void exampleSolution1dFile() {
 }
 ```
 ### Basic API Quick Start
-All Basic API read or write functions have the following form:\n
+All Basic API read or write functions have the following form:\
 **basic_stream_write**, where you can replace "write" with "read", and "stream" with "buffer". There is no "file" version.
 
 They all take 3 paramaters:
@@ -240,7 +272,7 @@ static void step1_write_to_file(auto &intbased_vec) {
 ```
 I think it would be better if this function would return true if successful, but since it's only an example it prints "WRITE\_SUCCESS\_STEP1" if successful.
 
-deep\_copy\_vector\_to\_file template parameter:\n
+deep\_copy\_vector\_to\_file template parameter:\
 Now, let's focus on the call to `picklejar::deep_copy_vector_to_file<1>(`, the first thing you should notice is the \<1\> template parameter; this is meant to be the version of the object——And is what allows us to read the file version in step3, drop support for older versions, and be able to fallback to a more suitable read function version in step2. If you change it to \<0\>, it would disable versioning, basically you would save sizeof(size_t) which is 8 bytes in my system; but in exchange you lose the mentioned functionality. It's handy in some situations——like structures and classes that you know will never change and don't need the versioning information——and it's used for internal calls by PickleJar when it's not needed.
 
 Now for the deep\_copy\_vector\_to\_file function parameters:
@@ -570,9 +602,9 @@ Notice how we passed ```<int>``` as a template parameter to the read function, t
 ## What can we do for Non-TriviallyCopiable Types
 There are 4 things you can do for Non-TriviallyCopiable types:
 1. Solution 1: Copy the size of the non-triviallycopiable object along with it's bytes (this way we know how many characters to read/store)
-2. Solution 2: Don't save it and Re-Generate the Non-TriviallyCopiable object when we run the program again.
-3. Solution 3: Re-Generate the object using it's constructor.
-4. Solution 4: Based in **Solution 3**. Ignore the value and instead use it's default constructor.
+2. Solution 2: Ignore it and Re-Generate the Non-TriviallyCopiable object when we run the program again.
+3. Solution 3: Re-Generate the object using it's constructor (similar to solution 2 but constructed in place).
+4. Solution 4: Based in **Solution 3**. Ignore the value and instead use it's default constructor (each solution may be useful on certain situations).
 ## Solution 1: Copy the size of the non-triviallycopiable object along with it's bytes (this way we know how many characters to read/store)
 In order to be able to "deep copy" our string, we will need to store how many bytes each string has just before we store the data, this can be done with PickleJar like so (using **deep_copy_vector_to_file** and **deep_read_vector_from_file**):
 ```c++
@@ -637,7 +669,6 @@ static void exampleSolution2() {
                optional_read_vector.value().at(
                    optional_read_vector.value().size() - 1))
                   .c_str());
-    hexer::print_vec(optional_read_vector.value());
   }
 }
 ```
@@ -697,7 +728,7 @@ static void exampleSolution4() {
 ```
 
 ## Explanation about Non-TriviallyCopiable Types
-A Non-TriviallyCopiable type in plain terms is an objects that is or contains strings, pointers, or other types that aren't stored directly inside the memory address range of it's object. For example, strings have a pointer to heap memory, if you want to copy a string you have to access it's .data() member to get a pointer to the character bytes.
+A Non-TriviallyCopiable type in plain terms is an object that is or contains strings, pointers, or other types that aren't stored directly inside the memory address range of it's object. For example, strings have a pointer to heap memory, if you want to copy a string you have to access it's .data() member to get a pointer to the character bytes.
 
 If we try to use the same TriviallyCopiable code for Types with a Non-TriviallyCopiable type, PickleJar will give a compile time error:
 ```
@@ -763,7 +794,6 @@ Now our first step is to preserve our blank instance valid string bytes, for thi
                optional_read_vector.value().at(
                    optional_read_vector.value().size() - 1))
                   .c_str());
-    hexer::print_vec(optional_read_vector.value());
   }
 ```
 In the previous code we used two ```picklejar::util``` functions to:
@@ -826,7 +856,6 @@ Code-wise, Solution 2 is identical to Solution 4 except at the end of the **oper
                optional_read_vector.value().at(
                    optional_read_vector.value().size() - 1))
                   .c_str());
-    hexer::print_vec(optional_read_vector.value());
   }
 ```
 ## Explaining [Solution 3](https://github.com/tomasguillen/picklejar#solution-3-re-generate-the-object-using-its-constructor)
