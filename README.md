@@ -17,7 +17,7 @@
 Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers; a simple versioning system prevents you from making common mistakes, and it allows you to update the objects stored after the fact.
 
 ## The Ultimate Goal Of This Library
-Ideally I wish I could tell you, you could just call picklejar::pickle\_write\_or\_read(any\_kind\_of\_object); and it would do the right thing. Unfortunately, c++20 doesn't have a way to reflect on the value member types of a class. Maybe it will appear in c++23, but until then you will have to use one of the two APIs I've provided below.
+Ideally I wish I could tell you, you could just call ```picklejar::pickle\_write\_or\_read(any\_kind\_of\_object);``` and it would do the right thing. Unfortunately, c++20 doesn't have a way to reflect on the value member types of a class, so I can't loop through each member and use the right API call in the right circumstance. Maybe reflection will appear in c++23, but until then you will have to use one of the two APIs I've provided below.
 
 ## Two APIs:
 * One for deep copying/reading with versioning and byte size redundancy
@@ -37,26 +37,11 @@ Every read or write function for both APIs has a version that interfaces with th
 
 Similarly, every read or write function has an object and a vector version. The latter can work with any container but only for it's **deep_(copy/read)** version.
 
-### Basic API Quick Start
-All Basic API read or write functions have the following form: 
-**basic_stream_write**, where you can replace "write" with "read", and "stream" with "buffer". There is no "file" version.
-
-They all take 3 paramaters:
-1. a stream(ofstream or ifstream) or a picklejar::ByteVectorWithCounter.
-2. a pointer to **destination_to_read_from** in case of the write function. and a pointer to **destination_to_write_to** in case of the read function. See example after.
-3. The size to read or write.
-
-```
-// write string starting with .data() pointer until .data() + size effectively writting the whole string to the std::ofstream
-picklejar::basic_stream_write(_ofs_output_file, a_std_string.data(), a_std_string.size());
-```
-For the read function we are telling it to read from the stream or buffer into the second parameter pointer we passed.
-
 ### Low-Level API Quick Start
-All low-level read or write functions have the following form:
-**picklejar::write_object_to_file**, where you can replace "write" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".
-Additionally, this API has **picklejar::util::preserve_blank_instance_member** and **copy_new_bytes_to_instance** which are described in the Low-Level API break down section.
-Also, **picklejar::sizeof_unversioned** can be used to obtain the size of an object or vector taking into account additional bytes used by picklejar—generally just the .size() if it's a container or a string. This is useful for using low-level API calls inside the Deep Copy/Read API write functions.
+All low-level read or write functions have the following form:\n
+**picklejar::write_object_to_file**, where you can replace "write" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".\n
+Additionally, this API has **picklejar::util::preserve_blank_instance_member** and **copy_new_bytes_to_instance** which are described in the Low-Level API break down section.\n
+Also, **picklejar::sizeof_unversioned** can be used to obtain the size of an object or vector taking into account additional bytes used by picklejar—generally just the .size() if it's a container or a string. This is useful for using low-level API calls inside the Deep Copy/Read API write functions.\n
 Finally, **picklejar::write_string_to_buffer** is a lone function, there is no read equivalent and it's just there to facilitate writting std::strings in certain situations, reading the string is easy and can be seen in the versioining examples.
 
 Here are the write and read functions that can be used to write and read an object to a file
@@ -84,8 +69,8 @@ static void example1() {
 This API won't easily work with a vector of std::string, unless you use it's more complex overloads. See the Low-Level API break down section of this readme.
 
 ### Deep Copy/Read API
-All deep copy or deep read functions have the following form:
-**picklejar::deep_copy_object_to_file**, where you can replace "copy" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".
+All deep copy or deep read functions have the following form:\n
+**picklejar::deep_copy_object_to_file**, where you can replace "copy" with "read", "object" with "vector", and "file" with one of: "stream", "file", "buffer".\n
 Finally, **picklejar::sizeof_versioned** can be used to obtain the size of a **deep_copied** object or vector taking into account additional bytes used by picklejar—generally consisting of the version and the .size() if it's a container or a string. This is useful for using nested **deep_copy** API calls inside another Deep Copy/Read API write function.
 
 Here is how to write and read a vector of std::string:
@@ -115,6 +100,20 @@ static void exampleSolution1dFile() {
   }
 }
 ```
+### Basic API Quick Start
+All Basic API read or write functions have the following form:\n
+**basic_stream_write**, where you can replace "write" with "read", and "stream" with "buffer". There is no "file" version.
+
+They all take 3 paramaters:
+1. a stream(ofstream or ifstream) or a picklejar::ByteVectorWithCounter.
+2. a pointer to **destination_to_read_from** in case of the write function. and a pointer to **destination_to_write_to** in case of the read function. See example after.
+3. The size to read or write.
+
+```c++
+// write string starting with .data() pointer until .data() + size effectively writting the whole string to the std::ofstream
+picklejar::basic_stream_write(_ofs_output_file, a_std_string.data(), a_std_string.size());
+```
+For the read function we are telling it to read from the stream or buffer into the second parameter pointer we passed.
 
 ### About ByteVectorWithCounter
 Here is the basic functionality—just a vector of char with a counter:
