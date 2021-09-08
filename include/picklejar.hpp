@@ -272,117 +272,8 @@ template <class Type>
   return output_buffer_of_bytes;
 }
 // END buffer_v1_vector
-// END WRITE_API
 
-// START READ_API_HELPERS
-[[nodiscard]] inline auto ifstream_filesize(std::ifstream &ifstream_input_file)
-    -> std::streamsize {
-  auto previous_pos = ifstream_input_file.tellg();
-  ifstream_input_file.ignore(std::numeric_limits<std::streamsize>::max());
-  std::streamsize file_gcount = ifstream_input_file.gcount();
-  ifstream_input_file.clear();  //  Since ignore will have set eof.
-  ifstream_input_file.seekg(previous_pos, std::ios_base::beg);
-  return file_gcount;
-}
-[[nodiscard]] inline auto ifstream_is_invalid(
-    std::ifstream &ifstream_input_file) -> bool {
-  return !ifstream_input_file.good();
-}
-[[nodiscard]] inline auto ifstream_close_and_check_is_invalid(
-    std::ifstream &ifstream_input_file) -> bool {
-  ifstream_input_file.close();
-  return !ifstream_input_file.good();
-}
-
-template <class Type>
-[[nodiscard]] inline auto
-ifstream_is_sizeof_type_larger_than_remaining_readbytes(
-    std::ifstream &ifstream_input_file, size_t file_size) -> bool {
-  return size_t(ifstream_input_file.tellg()) + sizeof(Type) > file_size or
-         ifstream_input_file.eof();
-}
-// ---------------------- UTILITY MACRO FOR deleting unneeded stuff from class
-// NOLINTNEXTLINE
-#define DELETE_UNNEEDED_DEFAULTS(class_name)            \
-  class_name(class_name &&) = delete;                   \
-  class_name(const class_name &) = delete;              \
-  auto operator=(class_name &&)->class_name & = delete; \
-  auto operator=(const class_name &)->class_name & = delete;
-// ---------------------- UTILITY MACRO FOR adding constructors to
-// ManagedStorage Classes
-// NOLINTNEXTLINE
-#define ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(class_name, storage)               \
-  template <class... Args>                                                     \
-  explicit class_name(Args &&...args)                                          \
-      : pointer_to_copy{new (&storage) Type{std::forward<Args>(args)...}} {}   \
-  template <class Tuple, std::size_t... I>                                     \
-  explicit class_name(Tuple &&arg_tuple, std::index_sequence<I...> /*is*/)     \
-      : pointer_to_copy{new (&storage) Type{                                   \
-            std::get<I>(std::forward<Tuple>(arg_tuple))...}} {}                \
-  template <class Tuple, std::size_t... I>                                     \
-  explicit class_name(Tuple &&arg_tuple)                                       \
-      : class_name(std::forward<Tuple>(arg_tuple),                             \
-                   std::make_index_sequence<                                   \
-                       std::tuple_size_v<std::remove_reference_t<Tuple>>>{}) { \
-  }
-
-// ManagedStorage v1 uses aligned_storage_t and inplace new
-// https://en.cppreference.com/w/cpp/language/new
-template <class Type>
-class ManagedAlignedStorageCopy {
-  std::aligned_storage_t<sizeof(Type), alignof(Type)> storage;
-  Type *const pointer_to_copy{nullptr};
-
- public:
-  DELETE_UNNEEDED_DEFAULTS(ManagedAlignedStorageCopy)
-  ManagedAlignedStorageCopy() : pointer_to_copy{new (&storage) Type} {}
-  ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(ManagedAlignedStorageCopy, storage)
-  ~ManagedAlignedStorageCopy() { (*pointer_to_copy).~Type(); }
-  auto get_pointer_to_copy() -> Type * { return pointer_to_copy; }
-};
-// ManagedStorage v2 uses a C array and inplace new
-template <class Type>
-class ManagedAlignedBufferCopy {
-  alignas(Type) unsigned char buf[sizeof(Type)]{};
-  Type *const pointer_to_copy{nullptr};
-
- public:
-  DELETE_UNNEEDED_DEFAULTS(ManagedAlignedBufferCopy)
-  ManagedAlignedBufferCopy() : pointer_to_copy{new (&buf) Type} {}
-  ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(ManagedAlignedBufferCopy, buf)
-  ~ManagedAlignedBufferCopy() { (*pointer_to_copy).~Type(); }
-  auto get_pointer_to_copy() -> Type * { return pointer_to_copy; }
-};
-
-// ManagedStorage v3 uses union and in-place new, DON'T USE THIS ONE
-// explicit destructor is unreliable
-template <class Type>
-struct UnionHolder {
-  DELETE_UNNEEDED_DEFAULTS(UnionHolder)
-  Type value_held;
-  UnionHolder(){};   // both dtor and ctor need to be declared empty like this
-  ~UnionHolder(){};  // we are basically telling c++ we will manage Type so no
-                     // default Type ctor or ~Type dtor are called
-};
-// DEPRECATED THIS TYPE OF MANAGER CAUSES DOUBLE FREE when running
-// the picklejar tests
-template <class Type>
-class ManagedAlignedUnionCopy {
-  UnionHolder<Type> holder{};
-  Type *const pointer_to_copy{nullptr};
-
- public:
-  DELETE_UNNEEDED_DEFAULTS(ManagedAlignedUnionCopy)
-  ManagedAlignedUnionCopy() : pointer_to_copy{new (&holder.value_held) Type} {}
-  ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(ManagedAlignedUnionCopy,
-                                      holder.value_held)
-
-  ~ManagedAlignedUnionCopy() { holder.value_held.~Type(); }
-  auto get_pointer_to_copy() -> Type * { return &holder.value_held; }
-};
-#define ManagedAlignedCopyDefault ManagedAlignedStorageCopy
-// END READ_API_HELPERS And ManagedStorage classes (to be able to hold a Type)
-
+// START BYTEVECTORWITHCOUNTER
 template <class ContainerOrViewType>
 struct ByteContainerOrViewWithCounter {
   ContainerOrViewType byte_data{};
@@ -540,6 +431,129 @@ struct ByteVectorWithCounter
     return ByteSpanWithCounter{current_iterator(), size_remaining()};
   }
 };
+// END BYTEVECTORWITHCOUNTER
+
+// START buffer_v1
+template <typename Type>
+auto write_vector_to_buffer(const std::vector<Type> &container_of_type,
+                            ByteVectorWithCounter &byte_vector_with_counter)
+    -> bool {
+  return byte_vector_with_counter.write(
+      reinterpret_cast<const char *>(container_of_type.data()),  // NOLINT
+      static_cast<long int>(sizeof(Type) * container_of_type.size()));
+}
+// END buffer_v1
+
+// END WRITE_API
+
+// START READ_API_HELPERS
+[[nodiscard]] inline auto ifstream_filesize(std::ifstream &ifstream_input_file)
+    -> std::streamsize {
+  auto previous_pos = ifstream_input_file.tellg();
+  ifstream_input_file.ignore(std::numeric_limits<std::streamsize>::max());
+  std::streamsize file_gcount = ifstream_input_file.gcount();
+  ifstream_input_file.clear();  //  Since ignore will have set eof.
+  ifstream_input_file.seekg(previous_pos, std::ios_base::beg);
+  return file_gcount;
+}
+[[nodiscard]] inline auto ifstream_is_invalid(
+    std::ifstream &ifstream_input_file) -> bool {
+  return !ifstream_input_file.good();
+}
+[[nodiscard]] inline auto ifstream_close_and_check_is_invalid(
+    std::ifstream &ifstream_input_file) -> bool {
+  ifstream_input_file.close();
+  return !ifstream_input_file.good();
+}
+
+template <class Type>
+[[nodiscard]] inline auto
+ifstream_is_sizeof_type_larger_than_remaining_readbytes(
+    std::ifstream &ifstream_input_file, size_t file_size) -> bool {
+  return size_t(ifstream_input_file.tellg()) + sizeof(Type) > file_size or
+         ifstream_input_file.eof();
+}
+// ---------------------- UTILITY MACRO FOR deleting unneeded stuff from class
+// NOLINTNEXTLINE
+#define DELETE_UNNEEDED_DEFAULTS(class_name)            \
+  class_name(class_name &&) = delete;                   \
+  class_name(const class_name &) = delete;              \
+  auto operator=(class_name &&)->class_name & = delete; \
+  auto operator=(const class_name &)->class_name & = delete;
+// ---------------------- UTILITY MACRO FOR adding constructors to
+// ManagedStorage Classes
+// NOLINTNEXTLINE
+#define ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(class_name, storage)               \
+  template <class... Args>                                                     \
+  explicit class_name(Args &&...args)                                          \
+      : pointer_to_copy{new (&storage) Type{std::forward<Args>(args)...}} {}   \
+  template <class Tuple, std::size_t... I>                                     \
+  explicit class_name(Tuple &&arg_tuple, std::index_sequence<I...> /*is*/)     \
+      : pointer_to_copy{new (&storage) Type{                                   \
+            std::get<I>(std::forward<Tuple>(arg_tuple))...}} {}                \
+  template <class Tuple>                                                       \
+  explicit class_name(Tuple &&arg_tuple)                                       \
+      : class_name(std::forward<Tuple>(arg_tuple),                             \
+                   std::make_index_sequence<                                   \
+                       std::tuple_size_v<std::remove_reference_t<Tuple>>>{}) { \
+  }
+
+// ManagedStorage v1 uses aligned_storage_t and inplace new
+// https://en.cppreference.com/w/cpp/language/new
+template <class Type>
+class ManagedAlignedStorageCopy {
+  std::aligned_storage_t<sizeof(Type), alignof(Type)> storage;
+  Type *const pointer_to_copy{nullptr};
+
+ public:
+  DELETE_UNNEEDED_DEFAULTS(ManagedAlignedStorageCopy)
+  ManagedAlignedStorageCopy() : pointer_to_copy{new (&storage) Type} {}
+  ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(ManagedAlignedStorageCopy, storage)
+  ~ManagedAlignedStorageCopy() { (*pointer_to_copy).~Type(); }
+  auto get_pointer_to_copy() -> Type * { return pointer_to_copy; }
+};
+// ManagedStorage v2 uses a C array and inplace new
+template <class Type>
+class ManagedAlignedBufferCopy {
+  alignas(Type) unsigned char buf[sizeof(Type)]{};
+  Type *const pointer_to_copy{nullptr};
+
+ public:
+  DELETE_UNNEEDED_DEFAULTS(ManagedAlignedBufferCopy)
+  ManagedAlignedBufferCopy() : pointer_to_copy{new (&buf) Type} {}
+  ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(ManagedAlignedBufferCopy, buf)
+  ~ManagedAlignedBufferCopy() { (*pointer_to_copy).~Type(); }
+  auto get_pointer_to_copy() -> Type * { return pointer_to_copy; }
+};
+
+// ManagedStorage v3 uses union and in-place new, DON'T USE THIS ONE
+// explicit destructor is unreliable
+template <class Type>
+struct UnionHolder {
+  DELETE_UNNEEDED_DEFAULTS(UnionHolder)
+  Type value_held;
+  UnionHolder(){};   // both dtor and ctor need to be declared empty like this
+  ~UnionHolder(){};  // we are basically telling c++ we will manage Type so no
+                     // default Type ctor or ~Type dtor are called
+};
+// DEPRECATED THIS TYPE OF MANAGER CAUSES DOUBLE FREE when running
+// the picklejar tests
+template <class Type>
+class ManagedAlignedUnionCopy {
+  UnionHolder<Type> holder{};
+  Type *const pointer_to_copy{nullptr};
+
+ public:
+  DELETE_UNNEEDED_DEFAULTS(ManagedAlignedUnionCopy)
+  ManagedAlignedUnionCopy() : pointer_to_copy{new (&holder.value_held) Type} {}
+  ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(ManagedAlignedUnionCopy,
+                                      holder.value_held)
+
+  ~ManagedAlignedUnionCopy() { holder.value_held.~Type(); }
+  auto get_pointer_to_copy() -> Type * { return &holder.value_held; }
+};
+#define ManagedAlignedCopyDefault ManagedAlignedStorageCopy
+// END READ_API_HELPERS And ManagedStorage classes (to be able to hold a Type)
 
 // START CONCEPTS
 // only enable concepts if c++ > 17
@@ -1900,8 +1914,7 @@ template <class PointerType>
 [[nodiscard]] auto basic_buffer_write(
     ByteVectorWithCounter &byte_vector_with_counter,
     PointerType *destination_to_copy_to, const size_t size_to_read) -> bool {
-  byte_vector_with_counter.write(destination_to_copy_to,
-                                 std::streamsize(size_to_read));  // NOLINT
+  byte_vector_with_counter.write(destination_to_copy_to, size_to_read);
   return true;
 }
 

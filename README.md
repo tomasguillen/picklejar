@@ -78,8 +78,8 @@ Finally, **picklejar::write_string_to_buffer** is a lone function, there is no r
 
 Here are the write and read functions that can be used to write and read an object to a file
 ```c++
-write_object_to_file(5, "example1.data"); // returns true if successful
-int i = read_object_from_file<int>("example1.data"); // returns the int, notice we have to pass the type as a template paramater <int>.
+picklejar::write_object_to_file(5, "example1.data"); // returns true if successful
+int i = picklejar::read_object_from_file<int>("example1.data"); // returns the int, notice we have to pass the type as a template paramater <int>.
 ```
 Here is how to write and read a vector of ints to/from a file:
 ```c++
