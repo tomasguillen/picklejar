@@ -195,8 +195,8 @@ using optional = type_safe::optional_ref<object_type>;
   class_name(const class_name &) = delete;              \
   auto operator=(class_name &&)->class_name & = delete; \
   auto operator=(const class_name &)->class_name & = delete;
-// ---------------------- UTILITY MACRO FOR adding constructors to managedstorage classes
-// NOLINTNEXTLINE
+// ---------------------- UTILITY MACRO FOR adding constructors to
+// managedstorage classes NOLINTNEXTLINE
 #define ADD_MULTIARG_AND_TUPLE_CONSTRUCTORS(class_name, storage)               \
   template <class... Args>                                                     \
   explicit class_name(Args &&...args)                                          \
@@ -521,7 +521,7 @@ auto write_vector_to_buffer(const std::vector<Type> &container_of_type,
     -> bool {
   return byte_vector_with_counter.write(
       reinterpret_cast<const char *>(container_of_type.data()),  // NOLINT
-      static_cast<long int>(sizeof(Type) * container_of_type.size()));
+      sizeof(Type) * container_of_type.size());
 }
 // END buffer_v1
 
