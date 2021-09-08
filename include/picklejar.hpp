@@ -1,5 +1,5 @@
-#ifndef PICKLEJAR_H  // This is the include guard macro
-#define PICKLEJAR_H 1
+#ifndef PICKLEJAR_HPP  // This is the include guard macro
+#define PICKLEJAR_HPP 1
 #include <array>
 #include <cassert>
 #include <cstring>
@@ -1020,12 +1020,15 @@ auto read_object_from_file(
 // START object_buffer_v2
 template <class Type,
           class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
-          class ManipulateBytesLambda>
+          class ManipulateBytesLambda, class ByteContainerOrViewType>
 auto operation_specific_read_object_from_buffer(
-    ManagedAlignedCopy &copy, ByteVectorWithCounter &buffer_with_input_bytes,
+    ManagedAlignedCopy &copy, ByteContainerOrViewType &buffer_with_input_bytes,
     ManipulateBytesLambda
         &&manipulate_bytes_from_file_before_writing_to_instance_lambda)
     -> ManagedAlignedCopy & {
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
   PICKLEJAR_CONCEPT(
       (PickleJarManipulateBytesLambdaRequirements<ManipulateBytesLambda, Type>),
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
@@ -1062,7 +1065,8 @@ constexpr auto read_object_from_buffer(
       MANIPULATEBYTESLAMBDAREQUIREMENTS_MSG);
   PICKLEJAR_CONCEPT(DefaultConstructible<Type>, DEFAULTCONSTRUCTIBLE_MSG);
   ManagedAlignedCopy copy{};
-  return *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
+  return *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy,
+                                                      ByteContainerOrViewType>(
                copy, buffer_with_input_bytes,
                manipulate_bytes_from_file_before_writing_to_instance_lambda))
               .get_pointer_to_copy();
@@ -1152,7 +1156,8 @@ template <class Type,
                         ConstructorGeneratorLambda, Type>),
                     CONSTRUCTORGENERATORLAMBDAREQUIREMENTS_MSG);
   ManagedAlignedCopy copy{constructor_generator_lambda()};
-  return *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
+  return *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy,
+                                                      ByteContainerOrViewType>(
                copy, buffer_with_input_bytes,
                manipulate_bytes_from_file_before_writing_to_instance_lambda))
               .get_pointer_to_copy();
@@ -1181,11 +1186,15 @@ void copy_new_bytes_to_instance(std::array<char, N> &bytes_to_copy_to_instance,
 
 // START object_buffer_v1
 template <class Type,
-          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>>
+          class ManagedAlignedCopy = ManagedAlignedCopyDefault<Type>,
+          class ByteContainerOrViewType>
 [[nodiscard]] auto operation_specific_read_object_from_buffer(
-    ManagedAlignedCopy &copy, ByteVectorWithCounter &buffer_with_input_bytes)
+    ManagedAlignedCopy &copy, ByteContainerOrViewType &buffer_with_input_bytes)
     -> ManagedAlignedCopy & {
-  return buffer_with_input_bytes.read<Type>(copy);
+  PICKLEJAR_CONCEPT(
+      PickleJarValidByteContainerOrViewType<ByteContainerOrViewType>,
+      VALIDBYTECONTAINERORVIEWTYPE_MSG);
+  return buffer_with_input_bytes.template read<Type>(copy);
 }
 // END object_buffer_v1
 
@@ -1217,7 +1226,8 @@ template <class Type,
     if (bytes_read_so_far + sizeof(Type) > file_size) break;
     ManagedAlignedCopy copy{};
     vector_input_data.push_back(std::move(
-        *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
+        *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy,
+                                                     ByteContainerOrViewType>(
               copy, buffer_with_input_bytes))
              .get_pointer_to_copy()));
   }
@@ -1267,7 +1277,8 @@ template <class Type,
 
     // END OPERATION VERSION
     vector_input_data.push_back(std::move(
-        *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy>(
+        *(operation_specific_read_object_from_buffer<Type, ManagedAlignedCopy,
+                                                     ByteContainerOrViewType>(
               copy, buffer_with_input_bytes,
               manipulate_bytes_from_file_before_writing_to_instance_lambda))
              .get_pointer_to_copy()));
