@@ -20,7 +20,7 @@ Send an email to tomguillen at zoho dot com, if you find a bug or have any comme
 Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers; a simple versioning system prevents you from making common mistakes, and it allows you to update the objects stored after the fact.
 
 ## The Ultimate Goal Of This Library
-In an ideal world, you could just call ```picklejar::pickle\_write\_or\_read(any\_kind\_of\_object);``` and it would do the right thing. Unfortunately, c++20 doesn't have a way to reflect on the value member types of a class, so I can't loop through each member and use the right API call in the right circumstance. Maybe reflection will appear in c++23, but until then you will have to use one of the two APIs I've provided below.
+In an ideal world, you could just call ```picklejar::pickle_write_or_read(any_kind_of_object);``` and it would do the right thing. Unfortunately, c++20 doesn't have a way to reflect on the value member types of a class, so I can't loop through each member and use the right API call in the right circumstance. Maybe reflection will appear in c++23, but until then you will have to use one of the two APIs I've provided below.
 
 ## Two APIs:
 * One for deep copying/reading with versioning and byte size redundancy
