@@ -17,7 +17,9 @@
 Send an email to tomguillen at zoho dot com, if you find a bug or have any comments or ideas you would like to see added to the library. Any code contribution will be welcomed and considered.
 
 # C++ PickleJar
-Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers; a simple versioning system prevents you from making common mistakes, and it allows you to update the objects stored after the fact.
+Created for the need to save complex objects into files and then recalling their content into objects in a fast way. It uses memcpy and it saves you the need to create your own parser, it also has a simple versioning system that allows you to handle data structure upgrades and changes for your users. The best way to learn how to use it is by looking at the examples and looking at this detailed README as a reference.
+
+In summary PickleJar allows you to Save and Load Objects and Vectors and Arrays from/to files, ifstreams or byte buffers; a simple versioning system prevents you from making common mistakes, and it allows you to update the objects stored after the fact.
 
 ## The Ultimate Goal Of This Library
 In an ideal world, you could just call ```picklejar::pickle_write_or_read(any_kind_of_object);``` and it would do the right thing. Unfortunately, c++20 doesn't have a way to reflect on the value member types of a class, so I can't loop through each member and use the right API call in the right circumstance. Maybe reflection will appear in c++23, but until then you will have to use one of the two APIs I've provided below.
